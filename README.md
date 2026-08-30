@@ -2,7 +2,7 @@
 
 Linux kernel for **Xiaomi Redmi Note 10 5G / Poco M3 Pro 5G (codename: camellia)** powered by a MediaTek Dimensity 700 (MT6833) platform.
 
-Kernel version: **4.14.190-flyme**
+Kernel version: **4.14.357-flyme**
 
 This kernel is built with:
 - **[ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) — ver 35090** (non-GKI, manual hook path)
