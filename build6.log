@@ -1,0 +1,273 @@
+  GEN     ./Makefile
+#
+# configuration written to .config
+#
+  GEN     ./Makefile
+scripts/kconfig/conf  --silentoldconfig Kconfig
+  CHK     include/config/kernel.release
+  GEN     ./Makefile
+  CHK     include/generated/uapi/linux/version.h
+  CHK     include/generated/utsrelease.h
+  Using .. as source for kernel
+  CHK     scripts/mod/devicetable-offsets.h
+  CHK     include/generated/timeconst.h
+  CHK     include/generated/bounds.h
+  CHK     include/generated/asm-offsets.h
+  CALL    ../scripts/checksyscalls.sh
+  CHK     include/generated/compile.h
+  CC      kernel/reboot.o
+  GZIP    kernel/config_data.gz
+  CHK     kernel/config_data.h
+  AR      kernel/built-in.o
+-- ReSukiSU version code: 35090
+-- ReSukiSU version name: v4.2.0-rc1-03b60f26@ReSukiSU
+-- Supported Unofficial Manager: MKSU, RKSU, KOWSU, SukiSU-Ultra, ReSukiSU 
+-- KERNEL_VERSION: 4.14
+-- KERNEL_TYPE: Non-GKI
+-- ReSukiSU: using Manual Hook
+-- ReSukiSU/manual_hook: You are using LSM hooks for setuid hooks.
+-- ReSukiSU/manual_hook: You are using LSM hooks for init rc hooks.
+-- ReSukiSU/manual_hook: You are using input_handler for input hooks.
+-- ReSukiSU/manual_hook: ksu_handle_execveat found
+-- ReSukiSU/manual_hook: ksu_handle_faccessat found
+-- ReSukiSU/manual_hook: ksu_handle_stat found
+-- ReSukiSU/manual_hook: ksu_handle_newfstat_ret found
+-- ReSukiSU/manual_hook: ksu_handle_fstat64_ret found
+-- ReSukiSU/manual_hook: ksu_handle_sys_reboot found
+-- ReSukiSU/compat: current_sid found
+-- ReSukiSU/compat: selinux_state found
+-- ReSukiSU/compat: kernel_read found
+-- ReSukiSU/compat: kernel_write found
+grep: ../include/linux/seccomp_types.h: No such file or directory
+-- ReSukiSU/compat: file_inode() found
+-- ReSukiSU/compat: ns_get_path found
+-- ReSukiSU/compat: modern dentry_open found
+-- ReSukiSU/compat: ext4_unregister_sysfs found
+-- ReSukiSU/compat: f_op->read_iter found
+-- ReSukiSU/compat: iterate_dir found
+-- ReSukiSU/compat: modern static_key_interface found
+-- ReSukiSU/compat: d_inode found
+-- ReSukiSU/compat: inode_lock found
+-- ReSukiSU/compat: modern errno file found
+-- ReSukiSU/compat: overflow.h found
+-- ReSukiSU/compat: modern proc ns header file found
+-- ReSukiSU/compat: android spec POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE found!!
+-- ReSukiSU/compat: android spec POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH found!!
+-- ReSukiSU/compat: found sidtab as reference
+-- ReSukiSU/compat: found new setprocattr prototype
+-- ReSukiSU/compat: found required provide lsm name
+-- ReSukiSU/compat: found security_add_hooks
+  CC      drivers/kernelsu/core/init.o
+  CC      drivers/kernelsu/policy/allowlist.o
+  CC      drivers/kernelsu/policy/app_profile.o
+  CC      drivers/kernelsu/policy/feature.o
+  CC      drivers/kernelsu/feature/sucompat.o
+  CC      drivers/kernelsu/feature/kernel_umount.o
+  CC      drivers/kernelsu/feature/sulog.o
+  CC      drivers/kernelsu/feature/adb_root.o
+..
+  CC      drivers/kernelsu/feature/selinux_hide.o
+..
+FDVT: Drv use 5.1 folder
+..
+  CC      drivers/kernelsu/feature/module_load_filter.o
+..
+..
+..
+../drivers/misc/mediatek/ccu/src/Makefile:29: CCU_MAKE_FILE_CALLED
+..
+  CC      drivers/kernelsu/hook/setuid_hook.o
+  CC      drivers/kernelsu/feature/dynamic_manager.o
+  CC      drivers/kernelsu/manager/apk_sign.o
+  CC      drivers/kernelsu/manager/throne_tracker.o
+  CC      drivers/kernelsu/manager/manager.o
+../drivers/misc/mediatek/connectivity/common/Kbuild:183: KERNEL_VERSION_SUPPORT_CHIPID_LIST=[6833]
+  CC      drivers/kernelsu/compat/kernel_compat.o
+../drivers/misc/mediatek/connectivity/gps/Makefile:217: is connsys_chip judge by CONFIG_MTK_COMBO_CHIP
+*MTK_GPU_VERSION 2 = valhall
+*MTK_GPU_VERSION 3 = r32p1
+  CC      drivers/kernelsu/infra/su_mount_ns.o
+  CC      drivers/kernelsu/infra/seccomp_cache.o
+  CC      drivers/kernelsu/infra/file_wrapper.o
+  CC      drivers/kernelsu/infra/event_queue.o
+  CC      drivers/kernelsu/runtime/boot_event.o
+  CC      drivers/kernelsu/runtime/ksud_integration.o
+  CC      drivers/kernelsu/selinux/selinux.o
+  CC      drivers/kernelsu/selinux/sepolicy.o
+  CC      drivers/kernelsu/selinux/rules.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/plat/mt6833/plat_priv.o
+  CC      drivers/kernelsu/sulog/event.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_service/agent/agent.o
+MTK_GPU_VERSION 1 = mali
+imgsensor drv by platform ./camera_project/camellia/ov48b_qtech_main_mipi_raw/ ./camera_project/camellia/ov48b_aac_main_mipi_raw/ ./camera_project/camellia/ov8856_ofilm_front_mipi_raw/ ./camera_project/camellia/ov8856_aac_front_mipi_raw/ ./camera_project/camellia/gc02m1b_qtech_depth_mipi_mono/ ./camera_project/camellia/gc02m1b_aac_depth_mipi_mono/ ./camera_project/camellia/hi259h_qtech_macro_mipi_raw/ ./camera_project/camellia/hi259h_aac_macro_mipi_raw/
+imgsensor subdir-ccflags-y = -I../drivers/misc/mediatek/imgsensor/src/common/v1_1 -I../drivers/misc/mediatek/mmdvfs -I../drivers/i2c/busses/ -I../drivers/misc/mediatek/imgsensor/src/mt6853/camera_project/camellia/camera_hw -I../drivers/misc/mediatek/imgsensor/src/mt6853/camera_hw_mt6833 -I../drivers/misc/mediatek/imgsensor/src/mt6853/camera_hw -I../drivers/misc/mediatek/imgsensor/src/common/v1_1/camera_hw -DSENSOR_PARALLEISM -I../drivers/misc/mediatek/imgsensor/src/mt6853/seninf_mt6833/ -I../drivers/misc/mediatek/imgsensor/src/mt6853/seninf/
+imgsensor drv by project ov48b_qtech_main_mipi_raw/ ov48b_aac_main_mipi_raw/ ov8856_ofilm_front_mipi_raw/ ov8856_aac_front_mipi_raw/ gc02m1b_qtech_depth_mipi_mono/ gc02m1b_aac_depth_mipi_mono/ hi259h_qtech_macro_mipi_raw/ hi259h_aac_macro_mipi_raw/
+************  drivers/trusty/mtee-kree mk ************
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_service/service/service_test.o
+*MTK_GPU_VERSION 2 = valhall
+*MTK_GPU_VERSION 3 = r32p1
+  CC      drivers/kernelsu/sulog/fd.o
+mali MTK evironment, building r32p1 DDK
+mtk-Kbuild CONFIG_MALI_PLATFORM_THIRDPARTY := y
+mtk-Kbuild CONFIG_MALI_PLATFORM_THIRDPARTY_NAME := "mt6833"
+*GPU defined GPU BM QoS 2.0
+mali MTK evironment, building r32p1 DDK
+mtk-Kbuild CONFIG_MALI_PLATFORM_THIRDPARTY := y
+mtk-Kbuild CONFIG_MALI_PLATFORM_THIRDPARTY_NAME := "mt6833"
+*GPU defined GPU BM QoS 2.0
+mali MTK evironment, building r32p1 DDK
+mtk-Kbuild CONFIG_MALI_PLATFORM_THIRDPARTY := y
+mtk-Kbuild CONFIG_MALI_PLATFORM_THIRDPARTY_NAME := "mt6833"
+*GPU defined GPU BM QoS 2.0
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_service/service/test_engine.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_service/glue/osal/gen4m/sys_adaption_gen4m.o
+  CC      drivers/kernelsu/supercall/dispatch.o
+  CC      drivers/kernelsu/supercall/perm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_service/glue/osal/gen4m/net_adaption_gen4m.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_service/glue/hal/gen4m/operation_gen4m.o
+  CC      drivers/kernelsu/supercall/supercall.o
+  CC      drivers/kernelsu/compat/apatch_conflict.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/dump.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/wlan_lib.o
+  CC      drivers/kernelsu/hook/arm64/patch_memory.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/wlan_oid.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/wlan_bow.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/debug.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/wlan_p2p.o
+  CC      drivers/kernelsu/infra/symbol_resolver.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/common/wlan_he.o
+  CC      drivers/kernelsu/hook/lsm_hooks.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_tx.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_txd_v1.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_rxd_v1.o
+  AR      drivers/kernelsu/kernelsu.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_rx.o
+  AR      drivers/kernelsu/built-in.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_pwr_mgt.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_rate.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/cmd_buf.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/que_mgt.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_cmd_event.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/nic_umac.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/nic/p2p_nic.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_init.o
+../drivers/misc/mediatek/sensor/2.0/mtk_nanohub/Makefile:5: "config_mtk_platform:"mt6853""
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_kal.o
+"CONFIG_MICROTRUST_TEE_VERSION="400""
+TCORE_UT_TESTS_SUPPORT = n
+TCORE_PROFILING_SUPPORT = n
+TCORE_PROFILING_AUTO_DUMP = n
+TCORE_MEMORY_LEAK_DETECTION_SUPPORT = n
+"CONFIG_MICROTRUST_TEE_SUPPORT=y"
+"CONFIG_MICROTRUST_TZ_DRIVER=y"
+"CONFIG_MICROTRUST_VFS_DRIVER=y"
+"CONFIG_MICROTRUST_FP_DRIVER=y"
+"CONFIG_MICROTRUST_DEBUG="
+"CONFIG_MICROTRUST_TEST_DRIVERS="
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_bow.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_wext.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_wext_priv.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_ate_agent.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_qa_agent.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_hook_api.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_rst.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_cfg80211.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_proc.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_sys.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_vendor.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/platform.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_p2p.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_p2p_cfg80211.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_p2p_init.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/gl_p2p_kal.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/hif/common/hal_pdma.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/hif/common/kal_pdma.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/hif/common/dbg_pdma.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/hif/common/sw_wfdma.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/os/linux/hif/axi/axi.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/ais_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/aaa_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/assoc.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/auth.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/bss.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/cnm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/cnm_timer.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/cnm_mem.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/hem_mbox.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/mib.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/privacy.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rate.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rlm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rlm_domain.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/reg_rule.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rlm_obss.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rlm_protection.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rrm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/rsn.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/saa_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/scan.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/scan_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/scan_cache.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/swcr.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/roaming_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/tkip_mic.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/hs20.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/tdls.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/wnm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/qosmap.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/ap_selection.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/wmm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/mddp.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/thrm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/mscs.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/ie_sort.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/stats.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_dev_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_dev_state.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_role_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_role_state.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_func.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_scan.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_ie.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_rlm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_assoc.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_bss.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_rlm_obss.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/p2p_fsm.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/mgmt/wapi.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/chips/common/cmm_asic_connac.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/chips/common/dbg_connac.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/chips/common/fw_dl.o
+  CC      drivers/misc/mediatek/connectivity/wlan/core/gen4m/chips/soc2_1x1/soc2_1x1.o
+../drivers/misc/mediatek/connectivity/wlan/core/gen4m/chips/common/fw_dl.c:2402:9: warning: ROM code supports SEM-CTRL for ROM patch download [-W#pragma-messages]
+#pragma message("ROM code supports SEM-CTRL for ROM patch download")
+        ^
+1 warning generated.
+  AR      drivers/misc/mediatek/connectivity/wlan/core/gen4m/wlan_6833_axi.o
+  AR      drivers/misc/mediatek/connectivity/wlan/core/gen4m/built-in.o
+  AR      drivers/misc/mediatek/connectivity/built-in.o
+  AR      drivers/misc/mediatek/built-in.o
+  AR      drivers/misc/built-in.o
+  AR      drivers/built-in.o
+  GEN     .version
+  CHK     include/generated/compile.h
+  UPD     include/generated/compile.h
+  CC      init/version.o
+  AR      init/built-in.o
+  AR      built-in.o
+  LD      vmlinux.o
+  MODPOST vmlinux.o
+  KSYM    .tmp_kallsyms1.o
+  KSYM    .tmp_kallsyms2.o
+  LD      vmlinux
+  SORTEX  vmlinux
+  SYSMAP  System.map
+  OBJCOPY arch/arm64/boot/Image
+  GZIP    arch/arm64/boot/Image.gz
+  DTC     arch/arm64/boot/dts/mediatek/mt6833.dtb
+arch/arm64/boot/dts/mediatek/mt6833.dtb: Warning (reg_format): "reg" property in /i2c6@11f00000/speaker_amp@34 has invalid length (4 bytes) (#address-cells == 2, #size-cells == 1)
+arch/arm64/boot/dts/mediatek/mt6833.dtb: Warning (avoid_default_addr_size): Relying on default #address-cells value for /i2c6@11f00000/speaker_amp@34
+arch/arm64/boot/dts/mediatek/mt6833.dtb: Warning (avoid_default_addr_size): Relying on default #size-cells value for /i2c6@11f00000/speaker_amp@34
+  CAT     arch/arm64/boot/Image.gz-dtb
+BUILD_DONE_OK
