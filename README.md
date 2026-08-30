@@ -48,11 +48,10 @@ The resulting kernel image is located at `out/arch/arm64/boot/Image.gz-dtb`.
 - [ReSukiSU](https://github.com/ReSukiSU/ReSukiSU)
 - [Flyme kernel projects](https://github.com/camellia-devs)
 - [begonia kernel reference](https://github.com/Saikrishna1504/kernel_xiaomi_mt6785/commits/main/)
-- [@kotiktesei](https://t.me/kotiktesei)
 
 ## Support
 
-Telegram: [camellia build channel](https://t.me/ayushbuildforcamellianeverpal)
+Telegram: [camellia build channel](https://t.me/kotiktesei_builds)
 
 ## License
 
