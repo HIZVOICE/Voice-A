@@ -1,0 +1,236 @@
+# Voice-A Kernel (camellia) — performance kernel for LineageOS
+#
+# Builds the user's own fork of the Flyme kernel (HIZVOICE/Voice-A,
+# 4.14.357-openela-rc1, stock clocks, camellia_defconfig) with the
+# vendored ReSukiSU driver replaced by BakaSU main @ 516d3e87
+# (KSU_VERSION 35257, up from 35090), so current BakaSU managers
+# work without hunting an old manager version. The kernel is branded
+# Voice-A (CONFIG_LOCALVERSION "-flyme" -> "-Voice-A").
+#
+# v1 is the BASELINE: fork as-is + latest BakaSU driver + Voice-A
+# branding, no performance changes yet. Perf features (MGLRU + zstd
+# zram, EAS/schedutil, BBR, F2FS/BFQ, WireGuard, GED tuning, LOS
+# binder/memfd) land one at a time in later builds, so any regression
+# traces to exactly one change.
+#
+# Pins — all verified 2026-11-07 (same pins as the proven BakaSU rebuild):
+#   kernel: HIZVOICE/Voice-A (fork of Artslon/kernel_xiaomi_mt6833)
+#           @ bae2187f48937b130933b67914e53bb5d79a4b65
+#   driver: Baka-SU/BakaSU @ 516d3e87fbc986ccefdde2c2765f1700612441a9
+#           (4557 commits -> KSU_VERSION = 30000 + 4557 + 700 = 35257)
+#   clang:  AOSP clang-r547379 = Clang 20.0.0 (verified 200 OK)
+#   ak3:    osm0sis/AnyKernel3 @ e4b1bb25ca2aabcfd57f694a5998d87130701b71
+#           (AK_BASE_VERSION=20260809 — byte-identical scaffold to the v6 zip)
+#
+# Trigger: manual only (workflow_dispatch). Nothing is flashed here;
+# the output is a flashable AnyKernel3 zip (artifact + GitHub Release).
+
+name: Voice-A Kernel (camellia)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  KERNEL_SHA: bae2187f48937b130933b67914e53bb5d79a4b65
+  BAKASU_SHA: 516d3e87fbc986ccefdde2c2765f1700612441a9
+  BAKASU_COMMITS: "4557"
+  KSU_VERSION: "35257"
+  CLANG_URL: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz
+  AK3_SHA: e4b1bb25ca2aabcfd57f694a5998d87130701b71
+  ZIP_NAME: AnyKernel3-camellia-Voice-A-v1.zip
+  RELEASE_TAG: voice-a-v1
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: 1. Install build dependencies
+        run: |
+          set -eo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev libncurses-dev \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            python3 git curl zip unzip cpio rsync
+          nproc
+          df -h .
+
+      - name: 2. Download pinned AOSP Clang r547379 (Clang 20.0.0)
+        run: |
+          set -eo pipefail
+          mkdir -p "$HOME/clang"
+          curl -fsSL "$CLANG_URL" -o /tmp/clang-r547379.tar.gz
+          tar -xzf /tmp/clang-r547379.tar.gz -C "$HOME/clang"
+          "$HOME/clang/bin/clang" --version | head -1
+          test -x "$HOME/clang/bin/clang"
+
+      - name: 3. Clone Voice-A fork @ pinned SHA
+        run: |
+          set -eo pipefail
+          git clone --depth 1 https://github.com/HIZVOICE/Voice-A.git kernel
+          HEAD_SHA="$(git -C kernel rev-parse HEAD)"
+          echo "kernel HEAD: $HEAD_SHA"
+          [ "$HEAD_SHA" = "$KERNEL_SHA" ] || { echo "ERROR: kernel HEAD is not the pinned $KERNEL_SHA"; exit 1; }
+
+      - name: 4. Replace vendored driver with BakaSU main @ pinned SHA
+        run: |
+          set -eo pipefail
+          rm -rf kernel/KernelSU
+          git clone https://github.com/Baka-SU/BakaSU.git kernel/KernelSU
+          git -C kernel/KernelSU checkout -b build "$BAKASU_SHA"
+          COUNT="$(git -C kernel/KernelSU rev-list --count HEAD)"
+          echo "BakaSU commit count: $COUNT (expect $BAKASU_COMMITS)"
+          [ "$COUNT" = "$BAKASU_COMMITS" ] || { echo "ERROR: commit count mismatch"; exit 1; }
+          # Kbuild: KSU_VERSION = 30000 + rev-list count + 700 = 35257
+          test -L kernel/drivers/kernelsu
+          echo "drivers/kernelsu -> $(readlink kernel/drivers/kernelsu)"
+          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile
+          grep -q 'source "drivers/kernelsu/Kconfig"' kernel/drivers/Kconfig
+          grep -q '^CONFIG_KSU=y$' kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' kernel/arch/arm64/configs/camellia_defconfig
+          echo "driver wiring OK (symlink + Makefile + Kconfig + defconfig)"
+
+      - name: 5. Brand the kernel Voice-A (LOCALVERSION -flyme -> -Voice-A)
+        run: |
+          set -eo pipefail
+          grep -q '^CONFIG_LOCALVERSION="-flyme"$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: expected CONFIG_LOCALVERSION=\"-flyme\" in camellia_defconfig"; exit 1; }
+          sed -i 's/^CONFIG_LOCALVERSION="-flyme"$/CONFIG_LOCALVERSION="-Voice-A"/' kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_LOCALVERSION="-Voice-A"$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: LOCALVERSION did not change to -Voice-A"; exit 1; }
+          echo "LOCALVERSION is now -Voice-A (banner will read 4.14.357-openela-rc1-Voice-A)"
+
+      - name: 6. Build Image.gz-dtb (camellia_defconfig, stock clocks)
+        run: |
+          set -eo pipefail
+          cd kernel
+          export PATH="$HOME/clang/bin:$PATH"
+          export KBUILD_BUILD_USER=HIZVOICE
+          export KBUILD_BUILD_HOST=camellia
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" camellia_defconfig 2>&1 | tee "$GITHUB_WORKSPACE/defconfig.log"
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" Image.gz-dtb 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          ls -lh out/arch/arm64/boot/Image.gz-dtb
+
+      - name: 7. VERIFY — gate, stops the job before packaging on any failure
+        run: |
+          set -eo pipefail
+          grep -F "BakaSU version code: $KSU_VERSION" build.log || { echo "ERROR: Kbuild did not report BakaSU version code $KSU_VERSION"; exit 1; }
+          grep -F "BakaSU: using Manual Hook" build.log || { echo "ERROR: manual-hook mode not reported in build log"; exit 1; }
+          python3 - <<'PYEOF'
+          import re, zlib
+          p = "kernel/out/arch/arm64/boot/Image.gz-dtb"
+          data = open(p, "rb").read()
+          print(f"Image.gz-dtb size: {len(data)} bytes")
+          best = b""
+          i = 0
+          while True:
+              j = data.find(b"\x1f\x8b\x08", i)
+              if j < 0:
+                  break
+              try:
+                  d = zlib.decompressobj(31)
+                  out = d.decompress(data[j:])
+                  if len(out) > len(best):
+                      best = out
+              except Exception:
+                  pass
+              i = j + 1
+          assert best, "no gzip stream found in Image.gz-dtb"
+          m = re.search(rb"Linux version [ -~]{10,140}", best)
+          assert m, "kernel banner not found in decompressed image"
+          banner = m.group(0).decode()
+          print("banner:", banner)
+          assert "4.14.357-openela-rc1-Voice-A (HIZVOICE@camellia)" in banner, "banner mismatch: wrong version/user/host"
+          ksu = best.count(b"KernelSU")
+          print("KernelSU string hits:", ksu)
+          assert ksu > 100, "too few KernelSU strings"
+          susfs = best.count(b"SUSFS")
+          print("SUSFS string hits:", susfs)
+          assert susfs == 0, "SUSFS strings present (must be absent, as in v6)"
+          print("ALL IMAGE CHECKS PASSED")
+          PYEOF
+
+      - name: 8. Package AnyKernel3 zip (modelled on verified v6)
+        run: |
+          set -eo pipefail
+          git clone https://github.com/osm0sis/AnyKernel3.git ak3
+          git -C ak3 checkout "$AK3_SHA"
+          rm -rf ak3/.git
+          mkdir -p pkg
+          cp -a ak3/. pkg/
+          cat > pkg/anykernel.sh <<'AK3_EOF'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          # global properties
+          properties() { '
+          kernel.string=Voice-A v1 — camellia 4.14.357, BakaSU 35257, stock clocks
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=camellia
+          device.name2=camellian
+          device.name3=
+          device.name4=
+          device.name5=
+          supported.versions=
+          supported.patchlevels=
+          supported.vendorpatchlevels=
+          '; } # end properties
+
+
+          ### AnyKernel install
+          ## boot files attributes
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          # boot shell variables
+          BLOCK=/dev/block/by-name/boot;
+          IS_SLOT_DEVICE=auto;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
+          . tools/ak3-core.sh;
+
+          # boot install
+          split_boot; # skip unpack/repack ramdisk - kernel image contains appended dtb
+
+          flash_boot;
+          ## end boot install
+          AK3_EOF
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb pkg/Image.gz-dtb
+          cd pkg
+          zip -r -y "../$ZIP_NAME" .
+          cd ..
+          unzip -l "$ZIP_NAME"
+          sha256sum "$ZIP_NAME"
+          ls -lh "$ZIP_NAME"
+
+      - name: 9. Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      - name: 10. Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          # NOTE: this workflow never checks out the repo (no actions/checkout),
+          # so the workspace is not a git repo and `gh` cannot infer the
+          # repository from a remote. Pass it explicitly (the BakaSU rebuild
+          # failed here once: "fatal: not a git repository").
+          gh release create "$RELEASE_TAG" "$ZIP_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Voice-A v1 — first build (Flyme base, BakaSU 35257)" \
+            --notes "First Voice-A build: the user's own fork of the Flyme kernel (4.14.357-openela-rc1, stock clocks, camellia_defconfig) with the in-kernel BakaSU/ReSukiSU driver updated from 35090 to 35257 (BakaSU main @ 516d3e87, 4557 commits) and branded Voice-A. Current BakaSU managers work with this driver — no old manager version needed. Built with AOSP Clang r547379 (20.0.0). Packaged with AnyKernel3 @ e4b1bb2 (same scaffold as the verified v6 zip). Flash via recovery. SUSFS off, as in v6. This is the baseline — performance features land one at a time in later builds."
