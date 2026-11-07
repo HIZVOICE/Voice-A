@@ -15,9 +15,11 @@
 #
 # Pins — all verified 2026-11-07 (same pins as the proven BakaSU rebuild):
 #   kernel: HIZVOICE/Voice-A (fork of Artslon/kernel_xiaomi_mt6833)
-#           @ 7b63adb1519d9a52bfaeb414cd2caf41a37a5e58
-#           (main tip; the workflow commit only added voice-a.yml — the
-#           kernel source is identical to the fork point bae2187)
+#           @ bae2187f48937b130933b67914e53bb5d79a4b65 (the fork point)
+#           NOTE (build #2 lesson): do NOT pin the main tip. Committing
+#           this workflow moves the tip, so a --depth 1 clone of main can
+#           never equal the pinned tip — build #2 died on exactly that.
+#           The clone step fetches the pinned SHA explicitly instead.
 #   driver: Baka-SU/BakaSU @ 516d3e87fbc986ccefdde2c2765f1700612441a9
 #           (4557 commits -> KSU_VERSION = 30000 + 4557 + 700 = 35257)
 #   clang:  AOSP clang-r547379 = Clang 20.0.0 (verified 200 OK)
@@ -36,7 +38,7 @@ permissions:
   contents: write
 
 env:
-  KERNEL_SHA: 7b63adb1519d9a52bfaeb414cd2caf41a37a5e58
+  KERNEL_SHA: bae2187f48937b130933b67914e53bb5d79a4b65
   BAKASU_SHA: 516d3e87fbc986ccefdde2c2765f1700612441a9
   BAKASU_COMMITS: "4557"
   KSU_VERSION: "35257"
@@ -73,19 +75,27 @@ jobs:
       - name: 3. Clone Voice-A fork @ pinned SHA
         run: |
           set -eo pipefail
-          # Retry the clone up to 3 times: build #1's clone fetched all
-          # 79,527 objects (6.36 GiB) then died on a pack read
-          # ('error: bad pack offset', exit 128) — a transient fetch
-          # failure, not a repo problem. A fresh attempt re-fetches cleanly.
+          # Fetch the pinned commit explicitly. A plain `--depth 1` clone
+          # of main can never satisfy the pin: committing this workflow
+          # moves the tip past it (build #2 died on exactly that — the
+          # clone fetched the new tip 1812805 and the check wanted 7b63adb).
+          # GitHub serves a fetch of a commit SHA that is reachable from a
+          # ref, and bae2187 is the fork point on main.
+          # Retry up to 3 times: build #1's clone died on a transient pack
+          # read ('error: bad pack offset', exit 128) after fetching all
+          # 79,527 objects — a fetch failure, not a repo problem.
           for attempt in 1 2 3; do
             rm -rf kernel
-            if git clone --depth 1 https://github.com/HIZVOICE/Voice-A.git kernel; then
+            git init -q kernel
+            git -C kernel remote add origin https://github.com/HIZVOICE/Voice-A.git
+            if git -C kernel fetch --depth 1 origin "$KERNEL_SHA"; then
               break
             fi
-            echo "clone attempt $attempt failed, retrying..."
+            echo "fetch attempt $attempt failed, retrying..."
             sleep 10
           done
-          test -d kernel/.git || { echo "ERROR: clone failed after 3 attempts"; exit 1; }
+          git -C kernel rev-parse --verify -q FETCH_HEAD >/dev/null || { echo "ERROR: fetch of $KERNEL_SHA failed after 3 attempts"; exit 1; }
+          git -C kernel checkout -q FETCH_HEAD
           HEAD_SHA="$(git -C kernel rev-parse HEAD)"
           echo "kernel HEAD: $HEAD_SHA"
           [ "$HEAD_SHA" = "$KERNEL_SHA" ] || { echo "ERROR: kernel HEAD is not the pinned $KERNEL_SHA"; exit 1; }
