@@ -55,10 +55,49 @@
  *    on 5.10+). The other two ratelimited-printk users (selinux_hide.c,
  *    dispatch.c) already include it; avc_spoof.c was the only one missing.
  *
+ *  - Kbuild version pin (found by the GitHub build, run #6): upstream
+ *    KSU_VERSION prefers the live GitHub API count of branch main, which
+ *    has moved 15 commits past tag v4.3.0-r2 — the build reported 41165
+ *    for code that is really 41150, failing the workflow's VERIFY gate
+ *    (and mismatching the v4.3.0-r2 manager APK, 41150). The patch now
+ *    counts HEAD (the checked-out tag) and always uses the local count,
+ *    so the kernel reports 41150. This also makes the build hermetic
+ *    (no network-dependent version).
+ *
  * Not touched: SUSFS/KPM (inert by default), the version scheme, the manager
  * signature, the hook backend (kprobes + sys_enter tracepoint, no init_module
  * filter, no Kconfig backend).
  */
+diff --git a/kernel/Kbuild b/kernel/Kbuild
+index 17abbf5e..d0f805fa 100644
+--- a/kernel/Kbuild
++++ b/kernel/Kbuild
+@@ -182,7 +182,11 @@ KSU_SRC := $(if $(wildcard $(KSU_SRC)/../.git),$(KSU_SRC),$(MDIR))
+ 
+ git_short_sha    = $(shell cd $(KSU_SRC) && $(GIT_BIN) rev-parse --short=8 HEAD 2>/dev/null)
+ git_branch       = $(if $(strip $(KSU_BUILD_REF)),$(KSU_BUILD_REF),$(shell cd $(KSU_SRC) && $(GIT_BIN) rev-parse --abbrev-ref HEAD 2>/dev/null))
+-git_commit_count = $(shell cd $(KSU_SRC) && $(GIT_BIN) rev-list --count $(REPO_BRANCH) 2>/dev/null)
++git_commit_count = $(shell cd $(KSU_SRC) && $(GIT_BIN) rev-list --count HEAD 2>/dev/null)
++# 4.14/pinned-tag: count HEAD (the checked-out source), not REPO_BRANCH=main.
++# Upstream counts main, which has moved 15 commits past tag v4.3.0-r2 and
++# would report 41165 for code that is really 41150 (and must match the
++# v4.3.0-r2 manager APK, 41150).
+ git_latest_tag   = $(shell cd $(KSU_SRC) && $(GIT_BIN) describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+ 
+ $(shell cd $(KSU_SRC) 2>/dev/null && [ -f ../.git/shallow ] && $(GIT_BIN) fetch --unshallow 2>/dev/null)
+@@ -190,7 +194,11 @@ $(shell cd $(KSU_SRC) 2>/dev/null && [ -f ../.git/shallow ] && $(GIT_BIN) fetch
+ GITHUB_API_BASE  := https://api.github.com/repos/$(REPO_OWNER)/$(REPO_NAME)
+ KSU_GITHUB_VER   := $(shell $(CURL_BIN) -s "$(GITHUB_API_BASE)/releases/latest" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+ GITHUB_COMMITS   := $(shell $(CURL_BIN) -sI "$(GITHUB_API_BASE)/commits?sha=$(REPO_BRANCH)&per_page=1" 2>/dev/null | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p')
+-LOCAL_COUNT     := $(if $(GITHUB_COMMITS),$(GITHUB_COMMITS),$(git_commit_count))
++# 4.14/pinned-tag: always use the local HEAD count. Upstream prefers the
++# live GitHub API count of main, which drifts past the pinned tag and makes
++# the build non-hermetic (network-dependent version). The manager APK is
++# pinned to the tag's version (41150), so the kernel must report that.
++LOCAL_COUNT     := $(git_commit_count)
+ KSU_VERSION     := $(if $(LOCAL_COUNT),$(shell expr $(VERSION_BASE) + $(LOCAL_COUNT) - $(VERSION_OFFSET)),$(VERSION_BASE))
+ VERSION_TAG     := $(or $(KSU_GITHUB_VER),$(git_latest_tag),4.3.0)
+ KSU_VERSION_FULL := $(if $(call git_short_sha),v$(VERSION_TAG)-$(call git_short_sha)@$(call git_branch),v$(VERSION_TAG)-$(REPO_NAME)-unknown@unknown)
 diff --git a/kernel/core/init.c b/kernel/core/init.c
 index 29b4438f..5b72080f 100644
 --- a/kernel/core/init.c
