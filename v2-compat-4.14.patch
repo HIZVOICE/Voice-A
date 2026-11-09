@@ -21,6 +21,19 @@
 # 0xfee1dead as a pt_regs pointer): on < 4.17 PT_REAL_REGS(regs) is now
 # (regs) — the kprobe's regs already hold the syscall args.
 #
+# ni_syscall + event_bridge fixes (found by the FinaSU v2 build #2 phone
+# test, 2026-11-09 — the manager opened without rebooting but showed
+# "Unsupported" and root did not work): ksu_find_ni_syscall_slots looked up
+# "__arm64_sys_ni_syscall", which does not exist on 4.14 (the handler is
+# sys_ni_syscall), so the dispatcher never installed and the manager never
+# got its driver fd. On < 4.17 the lookup now uses "sys_ni_syscall"
+# (syscall_hook.c, and netisolate.c for the compat table). The shared
+# ksu_call_orig_syscall() helper moved from sucompat.c to syscall_hook.h,
+# and the four direct orig calls in syscall_event_bridge.c (newfstatat,
+# faccessat, execve_common, setresuid) now go through it — on 4.14 a direct
+# table call passes the pt_regs address as arg 0, so every hooked setresuid
+# failed and the fd still never installed.
+#
 diff --git a/kernel/core/init.c b/kernel/core/init.c
 index c6c1e41e..24ffe5f2 100644
 --- a/kernel/core/init.c
@@ -90,6 +103,33 @@ index 38d58355..a1398501 100644
  }
  
  struct umount_tw {
+diff --git a/kernel/feature/netisolate.c b/kernel/feature/netisolate.c
+index a3bdb0bc..cefc2a4e 100644
+--- a/kernel/feature/netisolate.c
++++ b/kernel/feature/netisolate.c
+@@ -16,6 +16,7 @@
+ #include <linux/string.h>
+ #include <linux/timekeeping.h>
+ #include <linux/uaccess.h>
++#include <linux/version.h> /* LINUX_VERSION_CODE for the 4.14 ni_syscall name */
+ 
+ #include <net/compat.h>
+ 
+@@ -536,7 +537,14 @@ static void ni_fill_compat_hooks(void)
+ {
+ #if defined(__aarch64__)
+     const char *table_name = "compat_sys_call_table";
++    /* 4.14 compat: the compat table's unimplemented entries are
++     * sys_ni_syscall (arch/arm64/kernel/sys32.c); the __arm64_sys_ name
++     * only exists on 4.17+. */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
++    const char *ni_name = "sys_ni_syscall";
++#else
+     const char *ni_name = "__arm64_sys_ni_syscall";
++#endif
+ #elif defined(__x86_64__)
+     const char *table_name = "ia32_sys_call_table";
+     const char *ni_name = "__ia32_sys_ni_syscall";
 diff --git a/kernel/feature/selinux_hide.c b/kernel/feature/selinux_hide.c
 index 01e76c31..d096fc80 100644
 --- a/kernel/feature/selinux_hide.c
@@ -283,15 +323,10 @@ index 01e76c31..d096fc80 100644
      {
          ebitmap_for_each_positive_bit(tattr, tnode, j)
 diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
-index 878eb37a..9d23d87a 100644
+index 878eb37a..1e853683 100644
 --- a/kernel/feature/sucompat.c
 +++ b/kernel/feature/sucompat.c
-@@ -1,17 +1,25 @@
- #include "linux/file.h"
- #include "linux/fcntl.h"
- #include "linux/namei.h"
-+#include <linux/compiler.h> /* 4.14: READ_ONCE for ksu_call_orig_syscall */
- #include <linux/compiler_types.h>
+@@ -5,13 +5,20 @@
  #include <linux/preempt.h>
  #include <linux/printk.h>
  #include <linux/mm.h>
@@ -313,36 +348,7 @@ index 878eb37a..9d23d87a 100644
  #include <linux/sched/task_stack.h>
  #include <linux/ptrace.h>
  #ifdef CONFIG_KSU_SUSFS
-@@ -31,6 +39,28 @@
- #include "ksu.h"
- #include "util.h"
- 
-+/* 4.14 compat: invoke the original syscall handler for table slot @nr.
-+ * On 4.17+ the table entries take pt_regs, so call them directly. On 4.14
-+ * they take raw args — unpack all six from regs (the callee ignores the
-+ * extras). Calling a 4.14 table entry with a pt_regs pointer would pass the
-+ * pt_regs address as the first syscall argument (e.g. execve's filename),
-+ * so the direct call is wrong on 4.14 and must go through here. */
-+#if defined(__aarch64__) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
-+static inline long ksu_call_orig_syscall(int nr, const struct pt_regs *regs)
-+{
-+    typedef long (*ksu_syscall_6_t)(unsigned long, unsigned long, unsigned long,
-+                                    unsigned long, unsigned long, unsigned long);
-+    ksu_syscall_6_t fn = (ksu_syscall_6_t)READ_ONCE(ksu_syscall_table[nr]);
-+    return fn(PT_REGS_SYSCALL_PARM1(regs), PT_REGS_PARM2(regs), PT_REGS_PARM3(regs),
-+              PT_REGS_SYSCALL_PARM4(regs), PT_REGS_PARM5(regs), PT_REGS_PARM6(regs));
-+}
-+#else
-+static inline long ksu_call_orig_syscall(int nr, const struct pt_regs *regs)
-+{
-+    return ksu_syscall_table[nr](regs);
-+}
-+#endif
-+
- #define SU_PATH "/system/bin/su"
- #define SH_PATH "/system/bin/sh"
- 
-@@ -131,7 +161,7 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
+@@ -131,7 +138,7 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
              pr_info("faccessat su->ksud!\n");
              orig_filename = *filename_user;
              *filename_user = ksud_user_path();
@@ -351,7 +357,7 @@ index 878eb37a..9d23d87a 100644
              revert_creds(old_cred);
              *filename_user = orig_filename;
              return ret;
-@@ -141,7 +171,7 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
+@@ -141,7 +148,7 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
      }
  
  do_orig_facessat:
@@ -360,7 +366,7 @@ index 878eb37a..9d23d87a 100644
  }
  
  long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
-@@ -171,7 +201,7 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
+@@ -171,7 +178,7 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
              pr_info("newfstatat su->ksud!\n");
              orig_filename = *filename_user;
              *filename_user = ksud_user_path();
@@ -369,7 +375,7 @@ index 878eb37a..9d23d87a 100644
              revert_creds(old_cred);
              *filename_user = orig_filename;
              return ret;
-@@ -181,7 +211,7 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
+@@ -181,7 +188,7 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
      }
  
  do_orig_stat:
@@ -378,7 +384,7 @@ index 878eb37a..9d23d87a 100644
  }
  
  static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
-@@ -265,7 +295,7 @@ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
+@@ -265,7 +272,7 @@ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
      }
      ksu_sulog_emit_pending(pending_sucompat, ret, GFP_KERNEL);
  
@@ -387,7 +393,7 @@ index 878eb37a..9d23d87a 100644
      if (ret < 0) {
          ksu_close_fd(tmp_fd);
          PT_REGS_SYSCALL_PARM1(regs) = orig_regs[0];
-@@ -284,7 +314,7 @@ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
+@@ -284,7 +291,7 @@ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
      return ret;
  
  do_orig_execve:
@@ -435,7 +441,7 @@ index 185557c4..01a0e8c5 100644
  
  struct patch_text_info {
 diff --git a/kernel/hook/arm64/syscall_hook.c b/kernel/hook/arm64/syscall_hook.c
-index ecf798ad..0d2da758 100644
+index ecf798ad..f788692b 100644
 --- a/kernel/hook/arm64/syscall_hook.c
 +++ b/kernel/hook/arm64/syscall_hook.c
 @@ -5,6 +5,9 @@
@@ -448,7 +454,25 @@ index ecf798ad..0d2da758 100644
  #include "infra/symbol_resolver.h"
  #include "../patch_memory.h"
  #include "arch.h"
-@@ -142,8 +145,24 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
+@@ -122,7 +125,17 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
+     if (!ksu_syscall_table || max_slots <= 0)
+         return 0;
+ 
++    /* 4.14 compat: the unimplemented-syscall handler is named sys_ni_syscall
++     * (kernel/sys_ni.c, arch/arm64/kernel/sys.c); the __arm64_sys_ prefix
++     * only exists on 4.17+, where the syscall wrappers were introduced.
++     * Looking up the 4.17+ name on 4.14 returns NULL, so no slots are
++     * found, the dispatcher never installs, and the manager never gets its
++     * driver fd (manager shows "Unsupported"). */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
++    ni_syscall = (unsigned long)ksu_resolve_symbol_for_functable_hook("sys_ni_syscall");
++#else
+     ni_syscall = (unsigned long)ksu_resolve_symbol_for_functable_hook("__arm64_sys_ni_syscall");
++#endif
+ 
+     pr_info("sys_ni_syscall: 0x%lx\n", ni_syscall);
+ 
+@@ -142,8 +155,24 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
  // Unified dispatcher: reads original NR from x8, dispatches to handler.
  // Validates that syscallno matches our dispatcher slot (i.e. we redirected it),
  // otherwise it's a spurious call — return -ENOSYS.
@@ -687,11 +711,59 @@ index 4598c6bc..95257147 100644
          pr_info("unhook patch head->first\n");
      } else {
          slot = (void **)((char *)hook->entry + hook->hook_offset);
+diff --git a/kernel/hook/syscall_event_bridge.c b/kernel/hook/syscall_event_bridge.c
+index 54ad11af..554ab62a 100644
+--- a/kernel/hook/syscall_event_bridge.c
++++ b/kernel/hook/syscall_event_bridge.c
+@@ -54,7 +54,7 @@ static int ksu_handle_init_mark_tracker(const char __user **filename_user)
+ long __nocfi ksu_hook_newfstatat(int orig_nr, const struct pt_regs *regs)
+ {
+     if (!ksu_su_compat_is_enabled())
+-        return ksu_syscall_table[orig_nr](regs);
++        return ksu_call_orig_syscall(orig_nr, regs);
+ 
+     return ksu_handle_stat_sucompat(orig_nr, (struct pt_regs *)regs);
+ }
+@@ -62,7 +62,7 @@ long __nocfi ksu_hook_newfstatat(int orig_nr, const struct pt_regs *regs)
+ long __nocfi ksu_hook_faccessat(int orig_nr, const struct pt_regs *regs)
+ {
+     if (!ksu_su_compat_is_enabled())
+-        return ksu_syscall_table[orig_nr](regs);
++        return ksu_call_orig_syscall(orig_nr, regs);
+ 
+     return ksu_handle_faccessat_sucompat(orig_nr, (struct pt_regs *)regs);
+ }
+@@ -118,7 +118,7 @@ static long __nocfi ksu_hook_execve_common(int orig_nr, const struct pt_regs *re
+         return ret;
+     }
+ 
+-    ret = ksu_syscall_table[orig_nr](regs);
++    ret = ksu_call_orig_syscall(orig_nr, regs);
+     ksu_sulog_emit_pending(pending_root_execve, ret, GFP_KERNEL);
+     return ret;
+ }
+@@ -136,7 +136,7 @@ long __nocfi ksu_hook_execveat(int orig_nr, const struct pt_regs *regs)
+ long __nocfi ksu_hook_setresuid(int orig_nr, const struct pt_regs *regs)
+ {
+     uid_t old_uid = current_uid().val;
+-    long ret = ksu_syscall_table[orig_nr](regs);
++    long ret = ksu_call_orig_syscall(orig_nr, regs);
+ 
+     if (ret < 0)
+         return ret;
 diff --git a/kernel/hook/syscall_hook.h b/kernel/hook/syscall_hook.h
-index a3d79bb9..998b369b 100644
+index a3d79bb9..5d4522c5 100644
 --- a/kernel/hook/syscall_hook.h
 +++ b/kernel/hook/syscall_hook.h
-@@ -6,6 +6,13 @@
+@@ -1,15 +1,49 @@
+ #ifndef __KSU_H_KSU_SYSCALL_HOOK
+ #define __KSU_H_KSU_SYSCALL_HOOK
+ #include <asm/syscall.h>
++#include <linux/compiler.h> /* READ_ONCE for ksu_call_orig_syscall */
++#include <linux/version.h> /* LINUX_VERSION_CODE for ksu_call_orig_syscall */
++#include "arch.h" /* PT_REGS_* macros for ksu_call_orig_syscall */
+ 
+ #if defined(__x86_64__)
  typedef sys_call_ptr_t syscall_fn_t;
  #elif defined(__riscv)
  typedef long (*syscall_fn_t)(const struct pt_regs *);
@@ -705,6 +777,34 @@ index a3d79bb9..998b369b 100644
  #endif
  
  extern syscall_fn_t *ksu_syscall_table;
+ 
++/* 4.14 compat: invoke the original syscall handler for table slot @nr.
++ * On 4.17+ the table entries take pt_regs, so call them directly. On 4.14
++ * they take raw args — unpack all six from regs (the callee ignores the
++ * extras). Calling a 4.14 table entry with a pt_regs pointer would pass the
++ * pt_regs address as the first syscall argument (e.g. execve's filename),
++ * so the direct call is wrong on 4.14 and must go through here. Shared by
++ * sucompat.c and syscall_event_bridge.c: both call original handlers from
++ * hook context, and both must unpack on < 4.17. */
++#if defined(__aarch64__) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
++static inline long ksu_call_orig_syscall(int nr, const struct pt_regs *regs)
++{
++    typedef long (*ksu_syscall_6_t)(unsigned long, unsigned long, unsigned long,
++                                    unsigned long, unsigned long, unsigned long);
++    ksu_syscall_6_t fn = (ksu_syscall_6_t)READ_ONCE(ksu_syscall_table[nr]);
++    return fn(PT_REGS_SYSCALL_PARM1(regs), PT_REGS_PARM2(regs), PT_REGS_PARM3(regs),
++              PT_REGS_SYSCALL_PARM4(regs), PT_REGS_PARM5(regs), PT_REGS_PARM6(regs));
++}
++#else
++static inline long ksu_call_orig_syscall(int nr, const struct pt_regs *regs)
++{
++    return ksu_syscall_table[nr](regs);
++}
++#endif
++
+ // Dispatcher slot number in syscall table
+ extern int ksu_dispatcher_nr;
+ 
 diff --git a/kernel/include/arch.h b/kernel/include/arch.h
 index 2851fa5c..48fd83c5 100644
 --- a/kernel/include/arch.h
