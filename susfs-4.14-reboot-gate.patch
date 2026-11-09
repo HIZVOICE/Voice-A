@@ -1,0 +1,35 @@
+# Camellia reboot.c dispatch gate for SUSFS (NOT upstream)
+#
+# The Flyme base tree already carries the KernelSU manual-hook call to
+# ksu_handle_sys_reboot() in SYSCALL_DEFINE4(reboot) (kernel/reboot.c),
+# but gated by CONFIG_KSU_MANUAL_HOOK — a symbol NEITHER FinaSU nor
+# SukiSU-Ultra main defines, so the call is compiled out in both builds
+# and the SUSFS dispatcher (ksu_handle_sys_reboot) is never invoked.
+# This patch re-gates the existing call to CONFIG_KSU_SUSFS, so the
+# dispatcher runs exactly when SUSFS is built in. Two one-line changes;
+# no new code. (Upstream simonpunk's susfs_inline_hook_patches.sh inserts
+# the same call, gated by CONFIG_KSU_SUSFS, into a stock reboot.c — this
+# tree already has the call, it only needs the gate fixed.)
+# Apply AFTER susfs-4.14-v2.3.0-camellia.patch (order-independent, but
+# keep them paired). Verified: git apply --check clean on bae2187.
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -277,7 +277,7 @@
+  *
+  * reboot doesn't sync: do that yourself before calling this.
+  */
+-#ifdef CONFIG_KSU_MANUAL_HOOK
++#ifdef CONFIG_KSU_SUSFS
+ extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+ #endif
+ 
+@@ -288,7 +288,7 @@
+ 	char buffer[256];
+ 	int ret = 0;
+ 
+-#ifdef CONFIG_KSU_MANUAL_HOOK
++#ifdef CONFIG_KSU_SUSFS
+ 	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+ #endif
+ 	/* We only trust the superuser with rebooting the system. */
