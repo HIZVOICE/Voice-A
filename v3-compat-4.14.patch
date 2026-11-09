@@ -32,6 +32,11 @@
  *  - Preinit clone3 fallback is a COMPILE ERROR on 4.14 (__NR_clone3
  *    undeclared); the runner now uses clone(2) pre-5.3.
  *
+ *  - Missing includes (found by the GitHub build, run #2): on 4.14,
+ *    strncpy_from_user() / copy_from_user() are not declared transitively
+ *    in syscall_event_bridge.c and kernel_compat.h (they are on 5.10+),
+ *    so <linux/uaccess.h> is now included explicitly in both files.
+ *
  * Not touched: SUSFS/KPM (inert by default), the version scheme, the manager
  * signature, the hook backend (kprobes + sys_enter tracepoint, no init_module
  * filter, no Kconfig backend).
@@ -580,10 +585,18 @@ index 4598c6bc..95257147 100644
      } else {
          slot = (void **)((char *)hook->entry + hook->hook_offset);
 diff --git a/kernel/hook/syscall_event_bridge.c b/kernel/hook/syscall_event_bridge.c
-index 50dd0bda..f991ae81 100644
+index 50dd0bda..2f98158e 100644
 --- a/kernel/hook/syscall_event_bridge.c
 +++ b/kernel/hook/syscall_event_bridge.c
-@@ -51,7 +51,7 @@ static int ksu_handle_init_mark_tracker(const char __user **filename_user)
+@@ -7,6 +7,7 @@
+ #include <linux/fcntl.h>
+ #include <linux/ptrace.h>
+ #include <linux/static_key.h>
++#include <linux/uaccess.h> // 4.14: strncpy_from_user() is not declared transitively here (it is on 5.10+)
+ 
+ #include "arch.h"
+ #include "klog.h" // IWYU pragma: keep
+@@ -51,7 +52,7 @@ static int ksu_handle_init_mark_tracker(const char __user **filename_user)
  long __nocfi ksu_hook_newfstatat(int orig_nr, const struct pt_regs *regs)
  {
      if (!ksu_su_compat_enabled)
@@ -592,7 +605,7 @@ index 50dd0bda..f991ae81 100644
  
      return ksu_handle_stat_sucompat(orig_nr, (struct pt_regs *)regs);
  }
-@@ -59,7 +59,7 @@ long __nocfi ksu_hook_newfstatat(int orig_nr, const struct pt_regs *regs)
+@@ -59,7 +60,7 @@ long __nocfi ksu_hook_newfstatat(int orig_nr, const struct pt_regs *regs)
  long __nocfi ksu_hook_faccessat(int orig_nr, const struct pt_regs *regs)
  {
      if (!ksu_su_compat_enabled)
@@ -601,7 +614,7 @@ index 50dd0bda..f991ae81 100644
  
      return ksu_handle_faccessat_sucompat(orig_nr, (struct pt_regs *)regs);
  }
-@@ -115,7 +115,7 @@ static long __nocfi ksu_hook_execve_common(int orig_nr, const struct pt_regs *re
+@@ -115,7 +116,7 @@ static long __nocfi ksu_hook_execve_common(int orig_nr, const struct pt_regs *re
          return ret;
      }
  
@@ -610,7 +623,7 @@ index 50dd0bda..f991ae81 100644
      ksu_sulog_emit_pending(pending_root_execve, ret, GFP_KERNEL);
      return ret;
  }
-@@ -133,7 +133,7 @@ long __nocfi ksu_hook_execveat(int orig_nr, const struct pt_regs *regs)
+@@ -133,7 +134,7 @@ long __nocfi ksu_hook_execveat(int orig_nr, const struct pt_regs *regs)
  long __nocfi ksu_hook_setresuid(int orig_nr, const struct pt_regs *regs)
  {
      uid_t old_uid = current_uid().val;
@@ -953,10 +966,18 @@ index 5f6551bc..2e205296 100644
      if (pm_ret < 0) {
          pr_err("failed to make root private, err: %d\n", pm_ret);
 diff --git a/kernel/kernel_compat.h b/kernel/kernel_compat.h
-index c0def8c9..e17d5581 100644
+index c0def8c9..98f9bac7 100644
 --- a/kernel/kernel_compat.h
 +++ b/kernel/kernel_compat.h
-@@ -10,6 +10,15 @@
+@@ -2,6 +2,7 @@
+ #define __KSU_H_KERNEL_COMPAT
+ 
+ #include <linux/fs.h>
++#include <linux/uaccess.h> // 4.14: copy_from_user() used below; not declared transitively here
+ #include <linux/version.h>
+ 
+ /*
+@@ -10,6 +11,15 @@
   * paramters are the same as copy_from_user
   * 0 = success
   */
@@ -972,7 +993,7 @@ index c0def8c9..e17d5581 100644
  static long ksu_copy_from_user_retry(void *to, const void __user *from,
                                       unsigned long count)
  {
-@@ -20,5 +29,6 @@ static long ksu_copy_from_user_retry(void *to, const void __user *from,
+@@ -20,5 +30,6 @@ static long ksu_copy_from_user_retry(void *to, const void __user *from,
      // we faulted! fallback to slow path
      return copy_from_user(to, from, count);
  }
