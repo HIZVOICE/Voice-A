@@ -49,6 +49,12 @@
  *    returning -EOPNOTSUPP (matching its documented SET behaviour).
  *    The handler still registers, so extension.c links unchanged.
  *
+ *  - avc_spoof: add missing linux/ratelimit.h include (found by the GitHub
+ *    build, run #5): pr_info_ratelimited needs DEFINE_RATELIMIT_STATE +
+ *    __ratelimit, which are not pulled in transitively on 4.14 (they are
+ *    on 5.10+). The other two ratelimited-printk users (selinux_hide.c,
+ *    dispatch.c) already include it; avc_spoof.c was the only one missing.
+ *
  * Not touched: SUSFS/KPM (inert by default), the version scheme, the manager
  * signature, the hook backend (kprobes + sys_enter tracepoint, no init_module
  * filter, no Kconfig backend).
@@ -107,6 +113,18 @@ index 9dcc1b37..09f3ed1e 100644
 +    return -EOPNOTSUPP;
 +}
 +#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0) */
+diff --git a/kernel/feature/avc_spoof.c b/kernel/feature/avc_spoof.c
+index 7e213dfb..2e6d73dc 100644
+--- a/kernel/feature/avc_spoof.c
++++ b/kernel/feature/avc_spoof.c
+@@ -4,6 +4,7 @@
+ #include <linux/atomic.h>
+ #include <linux/version.h>
+ #include <linux/string.h>
++#include <linux/ratelimit.h> /* 4.14: pr_info_ratelimited needs DEFINE_RATELIMIT_STATE + __ratelimit; not pulled in transitively on 4.14 */
+ 
+ #include "policy/feature.h"
+ #include "feature/avc_spoof.h"
 diff --git a/kernel/feature/kernel_umount.c b/kernel/feature/kernel_umount.c
 index 7e337abf..a0abb8fe 100644
 --- a/kernel/feature/kernel_umount.c
