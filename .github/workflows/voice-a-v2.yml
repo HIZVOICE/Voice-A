@@ -1,0 +1,326 @@
+# Voice-A v2 Kernel (camellia) — FinaSU root, same Flyme base as v1
+#
+# Builds the user's own fork of the Flyme kernel (HIZVOICE/Voice-A,
+# 4.14.357-openela-rc1, stock clocks, camellia_defconfig) with the
+# vendored ReSukiSU driver replaced by FinaSU main @ fbf8e00
+# (KSU_VERSION 33174 = 30000 + 3174 commits, v1.5.0), so the FinaSU
+# manager (v1.5.0 release APK, 33174) works with this driver. The kernel
+# is branded Voice-A (CONFIG_LOCALVERSION "-flyme" -> "-Voice-A").
+#
+# v2 is the ROOT BAKE-OFF variant 1: same base as v1, root stack as the
+# only variable. FinaSU uses the Tracepoint hook backend (no
+# CONFIG_KSU_MANUAL_HOOK — that symbol does not exist in FinaSU), SUSFS
+# stays OFF, and the manager signature is passed in slot 2 so the
+# manager is recognised. Perf features land one at a time in later
+# builds, so any regression traces to exactly one change.
+#
+# 4.14 COMPAT PATCH — v2-compat-4.14.patch (30 files, 832 insertions,
+# validated: git apply --check clean on a fresh fork clone, bit-identical
+# tree). Step 5c applies it. FinaSU is written for 5.10+ in the patched
+# places; the patch carries the v2 bootloop fix (the syscall hooks take
+# direct args on 4.14, not pt_regs) plus the sucompat orig-syscall calls
+# via ksu_call_orig_syscall(), preinit clone3 -> clone and the SELinux
+# policy ports. The local v2 build (2026-11-09) bootlooped on the phone
+# before this patch; the GitHub build is the fixed retry.
+#
+# Pins — kernel/clang/AK3 same as proven v1; driver pin verified 2026-11-09:
+#   kernel: HIZVOICE/Voice-A (fork of Artslon/kernel_xiaomi_mt6833)
+#           @ bae2187f48937b130933b67914e53bb5d79a4b65 (the fork point)
+#   driver: HIZVOICE/FinaSU @ fbf8e003d902c43213d435632a22e4fb1a219aeb
+#           (3174 commits -> KSU_VERSION = 30000 + 3174 = 33174; fork HEAD
+#           == upstream LyraVoid/FinaSU master == v1.5.0 release target)
+#   manager: FinaSU v1.5.0 release APK, version 33174, sha256
+#           6860cc33fdf0889290c9a27ba3dc468c3d287824695b12eea7bcc42f546b6638
+#           (cert CN=FolkSU; signature passed in slot 2 below)
+#   clang:  AOSP clang-r547379 = Clang 20.0.0 (verified 200 OK)
+#   ak3:    osm0sis/AnyKernel3 @ e4b1bb25ca2aabcfd57f694a5998d87130701b71
+#           (AK_BASE_VERSION=20260809 — byte-identical scaffold to the v6 zip)
+#
+# Trigger: manual only (workflow_dispatch). Nothing is flashed here;
+# the output is a flashable AnyKernel3 zip (artifact + GitHub Release).
+
+name: Voice-A v2 Kernel (FinaSU, camellia)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  KERNEL_SHA: bae2187f48937b130933b67914e53bb5d79a4b65
+  FINASU_SHA: fbf8e003d902c43213d435632a22e4fb1a219aeb
+  FINASU_COMMITS: "3174"
+  KSU_VERSION: "33174"
+  KSU_EXPECTED_SIZE2: "0x02cc"
+  KSU_EXPECTED_HASH2: "2d89b50aaf1db013c2b6738f973f48b62ea21a3a8d7216bfec3521065d448458"
+  KSU_SECOND_SIGNATURE_RELEASE: "1"
+  CLANG_URL: https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz
+  AK3_SHA: e4b1bb25ca2aabcfd57f694a5998d87130701b71
+  ZIP_NAME: AnyKernel3-camellia-Voice-A-v2-FinaSU.zip
+  RELEASE_TAG: voice-a-v2
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: 1. Install build dependencies
+        run: |
+          set -eo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev libncurses-dev \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            python3 git curl zip unzip cpio rsync
+          nproc
+          df -h .
+
+      - name: 2. Download pinned AOSP Clang r547379 (Clang 20.0.0)
+        run: |
+          set -eo pipefail
+          mkdir -p "$HOME/clang"
+          curl -fsSL "$CLANG_URL" -o /tmp/clang-r547379.tar.gz
+          tar -xzf /tmp/clang-r547379.tar.gz -C "$HOME/clang"
+          "$HOME/clang/bin/clang" --version | head -1
+          test -x "$HOME/clang/bin/clang"
+
+      - name: 3. Clone Voice-A fork @ pinned SHA
+        run: |
+          set -eo pipefail
+          # Fetch the pinned commit explicitly. A plain `--depth 1` clone
+          # of main can never satisfy the pin: committing this workflow
+          # moves the tip past it (build #2 died on exactly that — the
+          # clone fetched the new tip 1812805 and the check wanted 7b63adb).
+          # GitHub serves a fetch of a commit SHA that is reachable from a
+          # ref, and bae2187 is the fork point on main.
+          # Retry up to 3 times: build #1's clone died on a transient pack
+          # read ('error: bad pack offset', exit 128) after fetching all
+          # 79,527 objects — a fetch failure, not a repo problem.
+          for attempt in 1 2 3; do
+            rm -rf kernel
+            git init -q kernel
+            git -C kernel remote add origin https://github.com/HIZVOICE/Voice-A.git
+            if git -C kernel fetch --depth 1 origin "$KERNEL_SHA"; then
+              break
+            fi
+            echo "fetch attempt $attempt failed, retrying..."
+            sleep 10
+          done
+          git -C kernel rev-parse --verify -q FETCH_HEAD >/dev/null || { echo "ERROR: fetch of $KERNEL_SHA failed after 3 attempts"; exit 1; }
+          git -C kernel checkout -q FETCH_HEAD
+          HEAD_SHA="$(git -C kernel rev-parse HEAD)"
+          echo "kernel HEAD: $HEAD_SHA"
+          [ "$HEAD_SHA" = "$KERNEL_SHA" ] || { echo "ERROR: kernel HEAD is not the pinned $KERNEL_SHA"; exit 1; }
+
+      - name: 4. Replace vendored driver with FinaSU main @ pinned SHA
+        run: |
+          set -eo pipefail
+          rm -rf kernel/KernelSU
+          git clone https://github.com/HIZVOICE/FinaSU.git kernel/KernelSU
+          git -C kernel/KernelSU checkout -b build "$FINASU_SHA"
+          COUNT="$(git -C kernel/KernelSU rev-list --count HEAD)"
+          echo "FinaSU commit count: $COUNT (expect $FINASU_COMMITS)"
+          [ "$COUNT" = "$FINASU_COMMITS" ] || { echo "ERROR: commit count mismatch"; exit 1; }
+          # Kbuild: KSU_VERSION = 30000 + rev-list count = 33174
+          # Fetch upstream tags so the version-full string reads
+          # v1.5.0-<sha>@build (the fork has no tags of its own).
+          git -C kernel/KernelSU fetch --tags https://github.com/LyraVoid/FinaSU.git || echo "WARNING: tag fetch failed (version-full will read vunknown)"
+          test -L kernel/drivers/kernelsu
+          echo "drivers/kernelsu -> $(readlink kernel/drivers/kernelsu)"
+          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' kernel/drivers/Makefile
+          grep -q 'source "drivers/kernelsu/Kconfig"' kernel/drivers/Kconfig
+          grep -q '^CONFIG_KSU=y$' kernel/arch/arm64/configs/camellia_defconfig
+          echo "driver wiring OK (symlink + Makefile + Kconfig + defconfig)"
+
+      - name: 5. Brand the kernel Voice-A (LOCALVERSION -flyme -> -Voice-A)
+        run: |
+          set -eo pipefail
+          grep -q '^CONFIG_LOCALVERSION="-flyme"$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: expected CONFIG_LOCALVERSION=\"-flyme\" in camellia_defconfig"; exit 1; }
+          sed -i 's/^CONFIG_LOCALVERSION="-flyme"$/CONFIG_LOCALVERSION="-Voice-A"/' kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_LOCALVERSION="-Voice-A"$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: LOCALVERSION did not change to -Voice-A"; exit 1; }
+          echo "LOCALVERSION is now -Voice-A (banner will read 4.14.357-openela-rc1-Voice-A)"
+
+      - name: 5b. FinaSU config — Tracepoint backend, drop the BakaSU hook symbol
+        run: |
+          set -eo pipefail
+          # FinaSU has no CONFIG_KSU_MANUAL_HOOK; its backend is chosen by
+          # CONFIG_KSU_HOOK_TRACEPOINT (default) vs CONFIG_KSU_HOOK_SUSFS_INLINE
+          # (needs a SUSFS kernel patch that is not in this tree — never select).
+          # The Flyme defconfig still carries the BakaSU symbol from v1's base,
+          # so delete it outright, then append the FinaSU choices.
+          sed -i '/^CONFIG_KSU_MANUAL_HOOK=y$/d' kernel/arch/arm64/configs/camellia_defconfig
+          printf 'CONFIG_EXT4_FS=y\nCONFIG_KSU_HOOK_TRACEPOINT=y\n' >> kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_KSU=y$' kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_KSU_HOOK_TRACEPOINT=y$' kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_EXT4_FS=y$' kernel/arch/arm64/configs/camellia_defconfig
+          ! grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: CONFIG_KSU_MANUAL_HOOK still present"; exit 1; }
+          echo "FinaSU config OK (Tracepoint backend, EXT4_FS explicit, no MANUAL_HOOK)"
+
+      - name: 5c. Apply 4.14 compat patch (v2-compat-4.14.patch)
+        run: |
+          set -eo pipefail
+          # FinaSU v1.5.0 -> 4.14 compat patch (30 files, 832 insertions,
+          # validated: git apply --check clean on a fresh fork clone,
+          # bit-identical tree). Version-gated, minimal, C-only. Includes
+          # the v2 bootloop fix: the syscall hooks (ksu_sys_read/fstat,
+          # filter_init_module/finit_module, ksu_syscall_dispatcher) are
+          # reworked for the 4.14 calling convention (direct args, not
+          # pt_regs), plus the sucompat orig-syscall calls via
+          # ksu_call_orig_syscall(), preinit clone3 -> clone and the
+          # SELinux policy ports. Patch lives in HIZVOICE/Voice-A as
+          # v2-compat-4.14.patch.
+          curl -fsSL https://raw.githubusercontent.com/HIZVOICE/Voice-A/main/v2-compat-4.14.patch -o /tmp/v2-compat-4.14.patch
+          git -C kernel/KernelSU apply /tmp/v2-compat-4.14.patch
+          git -C kernel/KernelSU diff --stat
+
+      - name: 6. Build Image.gz-dtb (camellia_defconfig, stock clocks)
+        run: |
+          set -eo pipefail
+          cd kernel
+          export PATH="$HOME/clang/bin:$PATH"
+          export KBUILD_BUILD_USER=HIZVOICE
+          export KBUILD_BUILD_HOST=camellia
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" camellia_defconfig 2>&1 | tee "$GITHUB_WORKSPACE/defconfig.log"
+          # FinaSU preinit needs the UAPI headers installed (out/usr/include);
+          # a plain Image build does not populate them on 4.14. KSU_REQUIRE_PREINIT=1
+          # turns a missing header dir into a hard build error instead of a
+          # silent preinit-off, so a successful build proves preinit is on.
+          make O=out ARCH=arm64 headers_install 2>&1 | tee "$GITHUB_WORKSPACE/headers_install.log"
+          test -f out/usr/include/linux/unistd.h || { echo "ERROR: headers_install did not produce out/usr/include/linux/unistd.h"; exit 1; }
+          make O=out ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" \
+            KSU_REQUIRE_PREINIT=1 \
+            KSU_EXPECTED_SIZE2="$KSU_EXPECTED_SIZE2" \
+            KSU_EXPECTED_HASH2="$KSU_EXPECTED_HASH2" \
+            KSU_SECOND_SIGNATURE_RELEASE=1 \
+            Image.gz-dtb 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          ls -lh out/arch/arm64/boot/Image.gz-dtb
+
+      - name: 7. VERIFY — gate, stops the job before packaging on any failure
+        run: |
+          set -eo pipefail
+          grep -F "KernelSU version: $KSU_VERSION" build.log || { echo "ERROR: Kbuild did not report KernelSU version $KSU_VERSION"; exit 1; }
+          # .config gates: Tracepoint backend on, SUSFS and its inline hook absent.
+          grep -q '^CONFIG_KSU=y$' kernel/out/.config
+          grep -q '^CONFIG_KSU_HOOK_TRACEPOINT=y$' kernel/out/.config
+          grep -q '^CONFIG_EXT4_FS=y$' kernel/out/.config
+          grep -q '^CONFIG_KALLSYMS_ALL=y$' kernel/out/.config
+          ! grep -q '^CONFIG_KSU_SUSFS=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_SUSFS is on (must stay off)"; exit 1; }
+          ! grep -q '^CONFIG_KSU_HOOK_SUSFS_INLINE=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_HOOK_SUSFS_INLINE is on (must stay off)"; exit 1; }
+          echo ".config gates OK (KSU + Tracepoint + EXT4_FS + KALLSYMS_ALL, no SUSFS)"
+          python3 - <<'PYEOF'
+          import re, zlib
+          p = "kernel/out/arch/arm64/boot/Image.gz-dtb"
+          data = open(p, "rb").read()
+          print(f"Image.gz-dtb size: {len(data)} bytes")
+          best = b""
+          i = 0
+          while True:
+              j = data.find(b"\x1f\x8b\x08", i)
+              if j < 0:
+                  break
+              try:
+                  d = zlib.decompressobj(31)
+                  out = d.decompress(data[j:])
+                  if len(out) > len(best):
+                      best = out
+              except Exception:
+                  pass
+              i = j + 1
+          assert best, "no gzip stream found in Image.gz-dtb"
+          m = re.search(rb"Linux version [ -~]{10,140}", best)
+          assert m, "kernel banner not found in decompressed image"
+          banner = m.group(0).decode()
+          print("banner:", banner)
+          assert "4.14.357-openela-rc1-Voice-A (HIZVOICE@camellia)" in banner, "banner mismatch: wrong version/user/host"
+          ksu = best.count(b"KernelSU")
+          print("KernelSU string hits:", ksu)
+          assert ksu > 100, "too few KernelSU strings"
+          susfs = best.count(b"SUSFS")
+          print("SUSFS string hits:", susfs)
+          assert susfs == 0, "SUSFS strings present (must be absent, as in v6)"
+          print("ALL IMAGE CHECKS PASSED")
+          PYEOF
+
+      - name: 8. Package AnyKernel3 zip (modelled on verified v6)
+        run: |
+          set -eo pipefail
+          git clone https://github.com/osm0sis/AnyKernel3.git ak3
+          git -C ak3 checkout "$AK3_SHA"
+          rm -rf ak3/.git
+          mkdir -p pkg
+          cp -a ak3/. pkg/
+          cat > pkg/anykernel.sh <<'AK3_EOF'
+          ### AnyKernel3 Ramdisk Mod Script
+          ## osm0sis @ xda-developers
+
+          ### AnyKernel setup
+          # global properties
+          properties() { '
+          kernel.string=Voice-A v2 — camellia 4.14.357, FinaSU 33174, stock clocks
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=camellia
+          device.name2=camellian
+          device.name3=
+          device.name4=
+          device.name5=
+          supported.versions=
+          supported.patchlevels=
+          supported.vendorpatchlevels=
+          '; } # end properties
+
+
+          ### AnyKernel install
+          ## boot files attributes
+          boot_attributes() {
+          set_perm_recursive 0 0 755 644 $RAMDISK/*;
+          set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;
+          } # end attributes
+
+          # boot shell variables
+          BLOCK=/dev/block/by-name/boot;
+          IS_SLOT_DEVICE=auto;
+          RAMDISK_COMPRESSION=auto;
+          PATCH_VBMETA_FLAG=auto;
+
+          # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
+          . tools/ak3-core.sh;
+
+          # boot install
+          split_boot; # skip unpack/repack ramdisk - kernel image contains appended dtb
+
+          flash_boot;
+          ## end boot install
+          AK3_EOF
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb pkg/Image.gz-dtb
+          cd pkg
+          zip -r -y "../$ZIP_NAME" .
+          cd ..
+          unzip -l "$ZIP_NAME"
+          sha256sum "$ZIP_NAME"
+          ls -lh "$ZIP_NAME"
+
+      - name: 9. Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      - name: 10. Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          # NOTE: this workflow never checks out the repo (no actions/checkout),
+          # so the workspace is not a git repo and `gh` cannot infer the
+          # repository from a remote. Pass it explicitly (the BakaSU rebuild
+          # failed here once: "fatal: not a git repository").
+          gh release create "$RELEASE_TAG" "$ZIP_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Voice-A v2 — FinaSU 33174" \
+            --notes "Voice-A v2: the same Flyme kernel base as v1 (4.14.357-openela-rc1, stock clocks, camellia_defconfig) with the root driver swapped to FinaSU main @ fbf8e00 (v1.5.0, KSU_VERSION 33174) from the user's own fork HIZVOICE/FinaSU. Tracepoint hook backend; SUSFS off. The manager signature is baked in (slot 2), so the FinaSU v1.5.0 manager APK (33174) is recognised — install that exact release APK on the phone. Preinit on. Built with AOSP Clang r547379 (20.0.0). Packaged with AnyKernel3 @ e4b1bb2 (same scaffold as the verified v6 zip). Flash via recovery. This is bake-off variant 1 — same base as v1, root stack as the only variable."
