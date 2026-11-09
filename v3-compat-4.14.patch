@@ -64,6 +64,17 @@
  *    so the kernel reports 41150. This also makes the build hermetic
  *    (no network-dependent version).
  *
+ *  - PT_REAL_REGS fix (found by the v3 PHONE TEST, 2026-11-09 — NOT a build
+ *    error, a runtime crash): the phone panicked at 3.22s with
+ *    "Attempted to kill init! exitcode=0x0000000b" (SIGSEGV). The
+ *    reboot_handler_pre kprobe (supercall.c) dereferenced x0 as a pt_regs
+ *    pointer via PT_REAL_REGS, but on 4.14 sys_reboot takes args directly
+ *    (no __arm64_sys_ pt_regs wrapper), so x0 is magic1, not a pointer.
+ *    The load faulted and killed init. PT_REAL_REGS is now gated to
+ *    return regs directly on < 4.17. This is the same 4.17 ABI class as
+ *    the FinaSU v2 bootloop (pt_regs vs direct args). Only used by
+ *    reboot_handler_pre (supercall.c:119).
+ *
  * Not touched: SUSFS/KPM (inert by default), the version scheme, the manager
  * signature, the hook backend (kprobes + sys_enter tracepoint, no init_module
  * filter, no Kconfig backend).
@@ -793,7 +804,7 @@ index d4921bf9..199eb33f 100644
  extern int ksu_dispatcher_nr;
  
 diff --git a/kernel/include/arch.h b/kernel/include/arch.h
-index 2851fa5c..67f7d519 100644
+index 2851fa5c..e3a1a8f8 100644
 --- a/kernel/include/arch.h
 +++ b/kernel/include/arch.h
 @@ -19,12 +19,23 @@
@@ -820,6 +831,23 @@ index 2851fa5c..67f7d519 100644
  
  #elif defined(__x86_64__)
  
+@@ -99,6 +110,16 @@
+ #define PT_REGS_IP(x) (__PT_REGS_CAST(x)->__PT_IP_REG)
+ #define PT_REGS_ORIG_SYSCALL(x) (__PT_REGS_CAST(x)->__PT_ORIG_SYSCALL_REG)
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
++// Pre-4.17 syscalls take args directly (no __*_sys_ pt_regs wrapper), so a
++// kprobe on sys_reboot sees the syscall args in the argument registers, not
++// a pt_regs pointer in the first register. The kprobe's regs already hold
++// the args; there is no "real" regs pointer to dereference. Dereferencing
++// the first arg as a pt_regs faults (it is magic1, not a pointer) and kills
++// init -> "Attempted to kill init!" panic. See the v3 phone test (2026-11-09).
++#define PT_REAL_REGS(regs) (regs)
++#else
+ #define PT_REAL_REGS(regs) ((struct pt_regs *)PT_REGS_PARM1(regs))
++#endif
+ 
+ #endif
 diff --git a/kernel/include/util.h b/kernel/include/util.h
 index 3d26a276..b3615f1c 100644
 --- a/kernel/include/util.h
