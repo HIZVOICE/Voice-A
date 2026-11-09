@@ -15,6 +15,12 @@
 # gates (see the per-file hunks). KSU_VERSION 33174, Tracepoint backend,
 # manager signature (slot 2) unchanged.
 #
+# PT_REAL_REGS gate (found by the FinaSU v2 phone test, 2026-11-09 — the
+# kernel booted and ran Android, but opening the manager app called reboot
+# and the reboot_handler_pre kprobe faulted at +0x18 dereferencing magic1
+# 0xfee1dead as a pt_regs pointer): on < 4.17 PT_REAL_REGS(regs) is now
+# (regs) — the kprobe's regs already hold the syscall args.
+#
 diff --git a/kernel/core/init.c b/kernel/core/init.c
 index c6c1e41e..24ffe5f2 100644
 --- a/kernel/core/init.c
@@ -700,7 +706,7 @@ index a3d79bb9..998b369b 100644
  
  extern syscall_fn_t *ksu_syscall_table;
 diff --git a/kernel/include/arch.h b/kernel/include/arch.h
-index 2851fa5c..67f7d519 100644
+index 2851fa5c..48fd83c5 100644
 --- a/kernel/include/arch.h
 +++ b/kernel/include/arch.h
 @@ -19,12 +19,23 @@
@@ -727,6 +733,24 @@ index 2851fa5c..67f7d519 100644
  
  #elif defined(__x86_64__)
  
+@@ -99,6 +110,17 @@
+ #define PT_REGS_IP(x) (__PT_REGS_CAST(x)->__PT_IP_REG)
+ #define PT_REGS_ORIG_SYSCALL(x) (__PT_REGS_CAST(x)->__PT_ORIG_SYSCALL_REG)
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
++// Pre-4.17 syscalls take args directly (no __*_sys_ pt_regs wrapper), so a
++// kprobe on sys_reboot sees the syscall args in the argument registers, not
++// a pt_regs pointer in the first register. The kprobe's regs already hold
++// the args; there is no "real" regs pointer to dereference. Dereferencing
++// the first arg as a pt_regs faults (it is magic1 0xfee1dead, not a pointer)
++// and kills init -> "Attempted to kill init!" panic. Found by the FinaSU v2
++// phone test (2026-11-09): Oops at 70 s in reboot_handler_pre+0x18.
++#define PT_REAL_REGS(regs) (regs)
++#else
+ #define PT_REAL_REGS(regs) ((struct pt_regs *)PT_REGS_PARM1(regs))
++#endif
+ 
+ #endif
 diff --git a/kernel/include/util.h b/kernel/include/util.h
 index afa6f6d3..6e301145 100644
 --- a/kernel/include/util.h
