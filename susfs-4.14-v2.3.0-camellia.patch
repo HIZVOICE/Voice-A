@@ -8,12 +8,16 @@
 #   HEAD of that repo is v2.4.0 (2026-11-08, 807 new lines, unproven) —
 #   NOT used; v2.3.0 is the proven pin.
 #
-# Camellia adaptations (4 files; all other sections byte-identical to upstream):
+# Camellia adaptations (5 files; all other sections byte-identical to upstream):
 #  1. fs/proc/task_mmu.c — hunk 1: Flyme has no <linux/ctype.h>; the
 #     susfs_def.h include is inserted after <linux/mm_inline.h> instead.
 #     Hunks 5+6 (upstream) DROPPED: whitespace-only (a blank line removed /
 #     added in show_smap); the Flyme/MTK show_smap has no such anchor
 #     (no 'rollup_mode' block), so they cannot apply and change nothing.
+#     SUS_MAP early-return: upstream returns 0 from show_smap (returns int);
+#     the Flyme tree's equivalent site is smap_gather_stats (returns void),
+#     so the return is bare ('return;'). Upstream's 'return 0;' does not
+#     compile in a void function on this tree.
 #  2. kernel/kallsyms.c — hunk 1: Flyme has no <asm/sections.h> after the
 #     includes; the include lands after <linux/compiler.h>, before the
 #     're-linked' comment block. The s_show hunk is unchanged.
@@ -24,6 +28,14 @@
 #  4. mm/memory.c — hunk 1: Flyme has the SPECULATIVE_PAGE_FAULT block after
 #     #include "internal.h" where mainline 4.14 has CREATE_TRACE_POINTS;
 #     the trailing context is adjusted accordingly.
+#  5. fs/stat.c — ADDED '#include <linux/susfs_def.h>' under
+#     CONFIG_KSU_SUSFS_SUS_KSTAT. Upstream omits it, so the SUS_KSTAT code
+#     in vfs_getattr_nosec() calls susfs_is_current_app_uid() and uses
+#     STATX_SUS_KSTAT / STATX_SUS_KSTAT_FUSE with no declaration in scope.
+#     On this tree (FinaSU Kconfig defaults SUS_KSTAT to y) that fails the
+#     build with 11 errors in fs/stat.c — this was the GitHub build #5/#10
+#     failure (2026-11-09). The include brings in both the function and
+#     the two macros from the new include/linux/susfs_def.h.
 #
 # The reboot.c dispatch hook is NOT in this file: the Flyme base already
 # carries it (kernel/reboot.c, gated by CONFIG_KSU_MANUAL_HOOK, a symbol
@@ -1250,7 +1262,7 @@ diff --git a/fs/proc/task_mmu.c b/fs/proc/task_mmu.c
  
 +#ifdef CONFIG_KSU_SUSFS_SUS_MAP
 +	if (vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
-+		return 0;
++		return;
 +#endif
 +
  	smaps_walk.private = mss;
@@ -1929,11 +1941,12 @@ diff --git a/fs/stat.c b/fs/stat.c
 index 0fda4b6..dd2c150 100644
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -21,6 +21,11 @@
+@@ -21,6 +21,12 @@
  #include <linux/uaccess.h>
  #include <asm/unistd.h>
  
 +#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
++#include <linux/susfs_def.h>
 +extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
 +extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 result_mask);
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
