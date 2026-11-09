@@ -37,6 +37,12 @@
  *    in syscall_event_bridge.c and kernel_compat.h (they are on 5.10+),
  *    so <linux/uaccess.h> is now included explicitly in both files.
  *
+ *  - Missing include (found by the GitHub build, run #3): on 4.14,
+ *    current_pt_regs() is defined in <linux/ptrace.h> (as
+ *    task_pt_regs(current)), NOT in <asm/ptrace.h> (that move happened in
+ *    5.x), so syscall_hook.c now includes <linux/ptrace.h> +
+ *    <asm/processor.h> (task_pt_regs) alongside <asm/ptrace.h>.
+ *
  * Not touched: SUSFS/KPM (inert by default), the version scheme, the manager
  * signature, the hook backend (kprobes + sys_enter tracepoint, no init_module
  * filter, no Kconfig backend).
@@ -419,18 +425,20 @@ index fdbb5dea..802b377d 100644
  
  struct patch_text_info {
 diff --git a/kernel/hook/arm64/syscall_hook.c b/kernel/hook/arm64/syscall_hook.c
-index f8d052c3..e43a3167 100644
+index f8d052c3..674e743e 100644
 --- a/kernel/hook/arm64/syscall_hook.c
 +++ b/kernel/hook/arm64/syscall_hook.c
-@@ -5,6 +5,7 @@
+@@ -5,6 +5,9 @@
  #include <linux/kallsyms.h>
  #include <linux/mutex.h>
  #include <asm/cacheflush.h>
 +#include <asm/ptrace.h> /* current_pt_regs() for the 4.14 dispatcher */
++#include <linux/ptrace.h> /* 4.14: current_pt_regs() is defined here (as task_pt_regs(current)), NOT in asm/ptrace.h (that move happened in 5.x); the run #3 build failed on it being undeclared */
++#include <asm/processor.h> /* task_pt_regs(), which current_pt_regs() expands to on 4.14 */
  #include "infra/symbol_resolver.h"
  #include "../patch_memory.h"
  #include "arch.h"
-@@ -122,7 +123,15 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
+@@ -122,7 +125,15 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
      if (!ksu_syscall_table || max_slots <= 0)
          return 0;
  
@@ -447,7 +455,7 @@ index f8d052c3..e43a3167 100644
  
      pr_info("sys_ni_syscall: 0x%lx\n", ni_syscall);
  
-@@ -142,8 +151,27 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
+@@ -142,8 +153,27 @@ static int __init ksu_find_ni_syscall_slots(int *out_slots, int max_slots)
  // Unified dispatcher: reads original NR from x8, dispatches to handler.
  // Validates that syscallno matches our dispatcher slot (i.e. we redirected it),
  // otherwise it's a spurious call — return -ENOSYS.
