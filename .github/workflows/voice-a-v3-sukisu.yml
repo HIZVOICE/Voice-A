@@ -12,13 +12,26 @@
 # only variable. SukiSU-Ultra main hooks via kprobes + the sys_enter
 # tracepoint (registered at runtime); there is no hook-backend Kconfig
 # choice (CONFIG_KSU_MANUAL_HOOK / CONFIG_KSU_TRACEPOINT_HOOK do not
-# exist in SukiSU-Ultra). SUSFS stays OFF and KPM stays OFF (round-1
-# rule); the susfs_extension.o that ships in main is the SUSFS
-# *management* layer, inert on a kernel without the SUSFS patch — do
-# NOT assert "SUSFS strings == 0" (unlike v2). The manager signature
-# is a single v2 check (size 0x35c, hash 947ae9...), not FinaSU's slot-2
-# pair. Perf features land one at a time in later builds, so any
-# regression traces to exactly one change.
+# exist in SukiSU-Ultra). SUSFS is ON (v2.3.0, see steps 5d/5e) and KPM
+# stays OFF (round-1 rule). Main's susfs_extension.o is the SUSFS
+# *management* layer; the KSU-side wiring (Kconfig + reboot dispatcher
+# + selinux domain helpers) is ported from the builtin branch by
+# susfs-sukisu-main.patch (step 5e) — do NOT assert "SUSFS strings == 0".
+# The manager signature is a single v2 check (size 0x35c, hash 947ae9...),
+# not FinaSU's slot-2 pair. Perf features land one at a time in later
+# builds, so any regression traces to exactly one change.
+#
+# SUSFS — enabled 2026-11-09 (user ask: ReSuSFS v26.10.23 needs v2.2.0+).
+# Upstream susfs4ksu's non-GKI 4.14 branch is stuck at v1.5.5, so v2.2.0+
+# on 4.14 comes from the backport in JackA1ltman/NonGKI_Kernel_Build_2nd
+# (Patches/Patch/susfs_patch_to_4.14.patch @ b5d7e5be, SUSFS v2.3.0),
+# adapted for the Flyme tree (4 files) as susfs-4.14-v2.3.0-camellia.patch.
+# The reboot.c dispatch gate is re-gated to CONFIG_KSU_SUSFS by
+# susfs-4.14-reboot-gate.patch. CONFIG_KSU_HOOK_SUSFS_INLINE stays OFF
+# (the inline-hook script is NOT used). Main has no KSU-side SUSFS
+# wiring, so susfs-sukisu-main.patch ports it from the builtin branch
+# (Kconfig + dispatch.c ksu_handle_sys_reboot + selinux helpers +
+# rules.c batch-sid calls), minus the v2.4.0-only priority-uid-filter.
 #
 # 4.14 COMPAT PATCH — WRITTEN 2026-11-09 (v3-compat-4.14.patch, 30 files,
 # 802 insertions, validated: git apply --check clean on a fresh tag clone,
@@ -156,7 +169,7 @@ jobs:
           grep -q '^CONFIG_LOCALVERSION="-Voice-A"$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: LOCALVERSION did not change to -Voice-A"; exit 1; }
           echo "LOCALVERSION is now -Voice-A (banner will read 4.14.357-openela-rc1-Voice-A)"
 
-      - name: 5b. SukiSU-Ultra config — drop the BakaSU hook symbol, EXT4_FS explicit
+      - name: 5b. SukiSU-Ultra config — SUSFS on, drop the BakaSU hook symbol, EXT4_FS explicit
         run: |
           set -eo pipefail
           # SukiSU-Ultra has NO hook-backend Kconfig choice: its main branch
@@ -164,16 +177,20 @@ jobs:
           # CONFIG_KSU_MANUAL_HOOK / CONFIG_KSU_TRACEPOINT_HOOK do not
           # exist in either branch. The Flyme defconfig still carries the
           # BakaSU symbol from v1's base, so delete it outright.
+          # SUSFS v2.3.0 on (user ask 2026-11-09, ReSuSFS needs v2.2.0+):
+          # CONFIG_KSU_SUSFS=y here; the 10 sub-options default y in the
+          # Kconfig block added by susfs-sukisu-main.patch (step 5e).
           # KSU_MANUAL_SU defaults y and KPM defaults n in SukiSU-Ultra's
           # Kconfig — both correct as-is, nothing to append for them.
           sed -i '/^CONFIG_KSU_MANUAL_HOOK=y$/d' kernel/arch/arm64/configs/camellia_defconfig
-          printf 'CONFIG_EXT4_FS=y\n' >> kernel/arch/arm64/configs/camellia_defconfig
+          printf 'CONFIG_EXT4_FS=y\nCONFIG_KSU_SUSFS=y\n' >> kernel/arch/arm64/configs/camellia_defconfig
           grep -q '^CONFIG_KSU=y$' kernel/arch/arm64/configs/camellia_defconfig
           grep -q '^CONFIG_EXT4_FS=y$' kernel/arch/arm64/configs/camellia_defconfig
+          grep -q '^CONFIG_KSU_SUSFS=y$' kernel/arch/arm64/configs/camellia_defconfig
           grep -q '^CONFIG_KALLSYMS_ALL=y$' kernel/arch/arm64/configs/camellia_defconfig
           ! grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: CONFIG_KSU_MANUAL_HOOK still present"; exit 1; }
           ! grep -q '^CONFIG_KPM=y$' kernel/arch/arm64/configs/camellia_defconfig || { echo "ERROR: CONFIG_KPM is on (must stay off, round-1 rule)"; exit 1; }
-          echo "SukiSU-Ultra config OK (KSU + EXT4_FS + KALLSYMS_ALL, no MANUAL_HOOK, KPM off)"
+          echo "SukiSU-Ultra config OK (KSU + SUSFS + EXT4_FS + KALLSYMS_ALL, no MANUAL_HOOK, KPM off)"
 
       - name: 5c. Apply 4.14 compat patch (v3-compat-4.14.patch)
         run: |
@@ -189,6 +206,51 @@ jobs:
           # v3-compat-4.14.patch.
           curl -fsSL https://raw.githubusercontent.com/HIZVOICE/Voice-A/main/v3-compat-4.14.patch -o /tmp/v3-compat-4.14.patch
           git -C kernel/KernelSU apply /tmp/v3-compat-4.14.patch
+          git -C kernel/KernelSU diff --stat
+
+      - name: 5d. Apply SUSFS v2.3.0 kernel patch + reboot gate (camellia-adapted)
+        run: |
+          set -eo pipefail
+          # SUSFS v2.3.0 kernel patch for 4.14, adapted for the Flyme tree
+          # (susfs-4.14-v2.3.0-camellia.patch, 20 files: fs/susfs.c +
+          # include/linux/susfs.h + susfs_def.h + 17 fs/kernel hook sites).
+          # Upstream: JackA1ltman/NonGKI_Kernel_Build_2nd
+          # Patches/Patch/susfs_patch_to_4.14.patch @ b5d7e5be (v2.3.0).
+          # Validated: git apply --check clean on the pinned base.
+          # Then the reboot gate: the Flyme base already calls
+          # ksu_handle_sys_reboot() from SYSCALL_DEFINE4(reboot), gated by
+          # CONFIG_KSU_MANUAL_HOOK (a symbol neither tree defines); the
+          # gate patch re-gates it to CONFIG_KSU_SUSFS.
+          # Both patches live in HIZVOICE/Voice-A (repo root, main).
+          curl -fsSL https://raw.githubusercontent.com/HIZVOICE/Voice-A/main/susfs-4.14-v2.3.0-camellia.patch -o /tmp/susfs-4.14-v2.3.0-camellia.patch
+          curl -fsSL https://raw.githubusercontent.com/HIZVOICE/Voice-A/main/susfs-4.14-reboot-gate.patch -o /tmp/susfs-4.14-reboot-gate.patch
+          git -C kernel apply /tmp/susfs-4.14-v2.3.0-camellia.patch
+          git -C kernel apply /tmp/susfs-4.14-reboot-gate.patch
+          test -f kernel/fs/susfs.c
+          test -f kernel/include/linux/susfs.h
+          grep -q 'CONFIG_KSU_SUSFS' kernel/kernel/reboot.c
+          echo "SUSFS kernel patch + reboot gate applied (fs/susfs.c present, reboot.c gated to CONFIG_KSU_SUSFS)"
+
+      - name: 5e. Apply SukiSU KSU-side SUSFS wiring (susfs-sukisu-main.patch)
+        run: |
+          set -eo pipefail
+          # Main branch has NO KSU-side SUSFS wiring (no CONFIG_KSU_SUSFS
+          # Kconfig, no ksu_handle_sys_reboot, no susfs_is_current_ksu_domain).
+          # This patch ports it from the builtin branch, adapted for main:
+          # Kconfig block (10 symbols, FinaSU text), dispatch.c
+          # ksu_handle_sys_reboot (magic2==KSU_INSTALL_MAGIC2 returns 0 —
+          # main's kprobe installs the fd; no ksu_supercall_reboot_handler
+          # in main; v2.4.0-only priority-uid-filter omitted), selinux.c
+          # sid vars + domain helpers, selinux.h decls, rules.c
+          # susfs_set_batch_sid() at the 4 policy-install sites.
+          # Apply AFTER the v3-compat patch (step 5c). Patch lives in
+          # HIZVOICE/Voice-A (repo root, main). Validated: git apply
+          # --check clean against v4.3.0-r2 (645ef9860b9b).
+          curl -fsSL https://raw.githubusercontent.com/HIZVOICE/Voice-A/main/susfs-sukisu-main.patch -o /tmp/susfs-sukisu-main.patch
+          git -C kernel/KernelSU apply /tmp/susfs-sukisu-main.patch
+          grep -q 'config KSU_SUSFS' kernel/KernelSU/kernel/Kconfig
+          grep -q 'ksu_handle_sys_reboot' kernel/KernelSU/kernel/supercall/dispatch.c
+          grep -q 'susfs_is_current_ksu_domain' kernel/KernelSU/kernel/selinux/selinux.c
           git -C kernel/KernelSU diff --stat
 
       - name: 6. Build Image.gz-dtb (camellia_defconfig, stock clocks)
@@ -219,12 +281,17 @@ jobs:
           grep -F "SukiSU-Ultra version: $KSU_VERSION" build.log || { echo "ERROR: Kbuild did not report SukiSU-Ultra version $KSU_VERSION"; exit 1; }
           grep -F "preinit/preinit.o" build.log || { echo "ERROR: preinit.o not in build log (preinit is off — headers_install did not take)"; exit 1; }
           grep -F "preinit/blob.o" build.log || { echo "ERROR: blob.o not in build log (preinit is off)"; exit 1; }
-          # .config gates: KSU + EXT4_FS + KALLSYMS_ALL on, KPM off.
+          # .config gates: KSU + EXT4_FS + KALLSYMS_ALL on, SUSFS on, KPM off.
           grep -q '^CONFIG_KSU=y$' kernel/out/.config
           grep -q '^CONFIG_EXT4_FS=y$' kernel/out/.config
           grep -q '^CONFIG_KALLSYMS_ALL=y$' kernel/out/.config
+          grep -q '^CONFIG_KSU_SUSFS=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_SUSFS is off (must be on)"; exit 1; }
+          grep -q '^CONFIG_KSU_SUSFS_SUS_PATH=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_SUSFS_SUS_PATH is off"; exit 1; }
+          grep -q '^CONFIG_KSU_SUSFS_SUS_MOUNT=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_SUSFS_SUS_MOUNT is off"; exit 1; }
+          grep -q '^CONFIG_KSU_SUSFS_SUS_KSTAT=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_SUSFS_SUS_KSTAT is off"; exit 1; }
+          grep -q '^CONFIG_KSU_SUSFS_SPOOF_UNAME=y$' kernel/out/.config || { echo "ERROR: CONFIG_KSU_SUSFS_SPOOF_UNAME is off"; exit 1; }
           ! grep -q '^CONFIG_KPM=y$' kernel/out/.config || { echo "ERROR: CONFIG_KPM is on (must stay off, round-1 rule)"; exit 1; }
-          echo ".config gates OK (KSU + EXT4_FS + KALLSYMS_ALL, KPM off)"
+          echo ".config gates OK (KSU + SUSFS + sub-options + EXT4_FS + KALLSYMS_ALL, KPM off)"
           python3 - <<'PYEOF'
           import re, zlib
           p = "kernel/out/arch/arm64/boot/Image.gz-dtb"
@@ -253,11 +320,12 @@ jobs:
           ksu = best.count(b"KernelSU")
           print("KernelSU string hits:", ksu)
           assert ksu > 100, "too few KernelSU strings"
-          # NOTE: do NOT assert SUSFS strings == 0 here (unlike v2).
-          # SukiSU-Ultra main compiles extension/susfs_extension.o
-          # unconditionally, but it is the SUSFS *management* layer
-          # (inert without the SUSFS kernel patch, which is not in this
-          # tree). Its strings are present by design.
+          # NOTE: do NOT assert SUSFS strings == 0 here (unlike the old v2).
+          # SUSFS v2.3.0 is now ON: the kernel patch is in the tree and the
+          # KSU-side wiring is ported, so SUSFS strings MUST be present.
+          susfs = best.count(b"SUSFS")
+          print("SUSFS string hits:", susfs)
+          assert susfs > 0, "no SUSFS strings in the image (SUSFS patch did not build in)"
           print("SukiSU-Ultra string hits:", best.count(b"SukiSU"))
           print("ALL IMAGE CHECKS PASSED")
           PYEOF
@@ -343,4 +411,4 @@ jobs:
           gh release create "$RELEASE_TAG" "$ZIP_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Voice-A v3 — SukiSU-Ultra 41150" \
-            --notes "Voice-A v3: the same Flyme kernel base as v1/v2 (4.14.357-openela-rc1, stock clocks, camellia_defconfig) with the root driver swapped to SukiSU-Ultra main @ v4.3.0-r2 (KSU_VERSION 41150) from upstream SukiSU-Ultra/SukiSU-Ultra. Kprobes + sys_enter tracepoint hooks (main branch); SUSFS and KPM off. The manager signature is baked in (size 0x35c, hash 947ae9...), so the SukiSU v4.3.0-r2 manager APK (41150, com.sukisu.ultra) is recognised — install that exact release APK on the phone. Preinit on. Built with AOSP Clang r547379 (20.0.0). Packaged with AnyKernel3 @ e4b1bb2 (same scaffold as the verified v6 zip). Flash via recovery. This is bake-off variant 3 — same base as v1/v2, root stack as the only variable."
+            --notes "Voice-A v3: the same Flyme kernel base as v1/v2 (4.14.357-openela-rc1, stock clocks, camellia_defconfig) with the root driver swapped to SukiSU-Ultra main @ v4.3.0-r2 (KSU_VERSION 41150) from upstream SukiSU-Ultra/SukiSU-Ultra. Kprobes + sys_enter tracepoint hooks (main branch); SUSFS v2.3.0 ON (ReSuSFS needs v2.2.0+), KPM off. The manager signature is baked in (size 0x35c, hash 947ae9...), so the SukiSU v4.3.0-r2 manager APK (41150, com.sukisu.ultra) is recognised — install that exact release APK on the phone. Preinit on. Built with AOSP Clang r547379 (20.0.0). Packaged with AnyKernel3 @ e4b1bb2 (same scaffold as the verified v6 zip). Flash via recovery. This is bake-off variant 3 — same base as v1/v2, root stack as the only variable."
