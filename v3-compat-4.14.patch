@@ -43,6 +43,12 @@
  *    5.x), so syscall_hook.c now includes <linux/ptrace.h> +
  *    <asm/processor.h> (task_pt_regs) alongside <asm/ptrace.h>.
  *
+ *  - cpu_spoof extension inert on 4.14 (found by the GitHub build, run #4):
+ *    <vdso/datapage.h> does not exist before 5.1, so the whole extension
+ *    is gated to >= 5.1; on 4.14 ksu_extension_cpu_spoof_io() is a stub
+ *    returning -EOPNOTSUPP (matching its documented SET behaviour).
+ *    The handler still registers, so extension.c links unchanged.
+ *
  * Not touched: SUSFS/KPM (inert by default), the version scheme, the manager
  * signature, the hook backend (kprobes + sys_enter tracepoint, no init_module
  * filter, no Kconfig backend).
@@ -64,6 +70,43 @@ index 29b4438f..5b72080f 100644
  MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
  #endif
 +#endif
+diff --git a/kernel/extension/cpu_spoof.c b/kernel/extension/cpu_spoof.c
+index 9dcc1b37..09f3ed1e 100644
+--- a/kernel/extension/cpu_spoof.c
++++ b/kernel/extension/cpu_spoof.c
+@@ -25,6 +25,14 @@
+ #include "infra/symbol_resolver.h"
+ #include "klog.h" // IWYU pragma: keep
+ 
++/* 4.14: <vdso/datapage.h> (and struct vdso_time_data) does not exist
++ * before 5.1, so the cpu_spoof extension cannot build on 4.14. It is
++ * io-only with no sticky enable bit, so on 4.14 it is inert: the handler
++ * still registers, but IO returns -EOPNOTSUPP (matching its documented
++ * SET behaviour). The vDSO/MIDR rewrite is a nice-to-have, not core root.
++ */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
++
+ #if defined(CONFIG_ARM64) || defined(__aarch64__)
+ #include <asm/cpu.h>
+ #include <asm/cputype.h>
+@@ -239,3 +247,17 @@ int ksu_extension_cpu_spoof_io(u32 id, void __user *raw)
+ 
+     return set_spoof_cpu(&cmd);
+ }
++
++#else /* LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0): vdso/datapage.h missing */
++#include <linux/errno.h>
++#include <linux/types.h>
++#include <linux/uaccess.h>
++#include "cpu_spoof.h"
++
++int ksu_extension_cpu_spoof_io(u32 id, void __user *raw)
++{
++    (void)id;
++    (void)raw;
++    return -EOPNOTSUPP;
++}
++#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0) */
 diff --git a/kernel/feature/kernel_umount.c b/kernel/feature/kernel_umount.c
 index 7e337abf..a0abb8fe 100644
 --- a/kernel/feature/kernel_umount.c
